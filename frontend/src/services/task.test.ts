@@ -1,8 +1,10 @@
 import {describe, it, expect, vi, beforeEach} from 'vitest'
+import {createPinia, setActivePinia} from 'pinia'
 
 import TaskService from './task'
 import TaskModel from '@/models/task'
 import type {ITask} from '@/modelTypes/ITask'
+import {useAuthStore} from '@/stores/auth'
 
 interface BulkPayload {
 	tasks: {title: string}[],
@@ -37,6 +39,7 @@ function titlesOfCall(call: [string, BulkPayload]): string[] {
 
 describe('TaskService.bulkCreate', () => {
 	beforeEach(() => {
+		setActivePinia(createPinia())
 		nextId = 1
 		post.mockReset()
 		post.mockImplementation(async (_url, payload) => echoResponse(payload))
@@ -64,6 +67,7 @@ describe('TaskService.bulkCreate', () => {
 			'due_date',
 			'end_date',
 			'hex_color',
+			'inherit_project_color',
 			'is_favorite',
 			'percent_done',
 			'priority',
@@ -73,6 +77,21 @@ describe('TaskService.bulkCreate', () => {
 			'start_date',
 			'title',
 		])
+	})
+
+	it('uses the user preference for every bulk-created task', async () => {
+		const authStore = useAuthStore()
+		authStore.setUserSettings({
+			...authStore.settings,
+			frontendSettings: {
+				...authStore.settings.frontendSettings,
+				inheritProjectColorByDefaultForNewTasks: true,
+			},
+		})
+
+		await new TaskService().bulkCreate([new TaskModel({title: 'first', projectId: 42})])
+
+		expect(post.mock.calls[0][1].tasks[0]).toMatchObject({inherit_project_color: true})
 	})
 
 	it('sends one request per project and keeps the input order', async () => {

@@ -253,6 +253,26 @@ func TestTask_Update(t *testing.T) {
 			"project_id":  1,
 		}, false)
 	})
+	t.Run("preserves the project-color inheritance preference", func(t *testing.T) {
+		db.LoadAndAssertFixtures(t)
+		s := db.NewSession()
+		defer s.Close()
+
+		task, err := GetTaskByIDSimple(s, 1)
+		require.NoError(t, err)
+		task.InheritProjectColor = true
+		require.NoError(t, task.Update(s, u))
+		assert.True(t, task.InheritProjectColor)
+
+		partial := &Task{ID: task.ID, Title: "partial update"}
+		require.NoError(t, partial.updateSingleTask(s, u, []string{"title"}))
+		assert.True(t, partial.InheritProjectColor, "an unrelated partial update must keep color inheritance")
+
+		partial.InheritProjectColor = false
+		require.NoError(t, partial.updateSingleTask(s, u, []string{"inherit_project_color"}))
+		assert.False(t, partial.InheritProjectColor)
+		require.NoError(t, s.Commit())
+	})
 	t.Run("nonexistant task", func(t *testing.T) {
 		db.LoadAndAssertFixtures(t)
 		s := db.NewSession()

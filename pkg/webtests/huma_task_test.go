@@ -165,6 +165,22 @@ func TestHumaTask_Create(t *testing.T) {
 		assert.Contains(t, rec.Body.String(), `"title":"Lorem Ipsum"`)
 		assert.Contains(t, rec.Body.String(), `"project_id":1`)
 	})
+	t.Run("project-color inheritance is created, read, and updated", func(t *testing.T) {
+		rec := create("1", `{"title":"inherited color","inherit_project_color":true}`)
+		require.Equal(t, http.StatusCreated, rec.Code, "body: %s", rec.Body.String())
+
+		var created struct {
+			ID                  int64 `json:"id"`
+			InheritProjectColor bool  `json:"inherit_project_color"`
+		}
+		require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &created))
+		assert.True(t, created.InheritProjectColor)
+
+		rec = humaRequest(t, h.e, http.MethodPatch, fmt.Sprintf("/api/v2/tasks/%d", created.ID),
+			`{"inherit_project_color":false}`, humaTokenFor(t, &testuser1), "application/merge-patch+json")
+		require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+		assert.Contains(t, rec.Body.String(), `"inherit_project_color":false`)
+	})
 	t.Run("Project id from body is ignored - URL wins", func(t *testing.T) {
 		rec := create("1", `{"title":"url wins","project_id":7}`)
 		require.Equal(t, http.StatusCreated, rec.Code, "body: %s", rec.Body.String())

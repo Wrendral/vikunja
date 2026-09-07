@@ -1,0 +1,3 @@
+services:
+  vikunja:
+    image: ${VIKUNJA_IMAGE:?VIKUNJA_IMAGE must reference an immutable image digest}

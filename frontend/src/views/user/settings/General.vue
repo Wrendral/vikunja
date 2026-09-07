@@ -83,6 +83,10 @@
 				:label="$t('user.settings.general.showLastViewed')"
 			/>
 			<FormCheckbox
+				v-model="settings.frontendSettings.inheritProjectColorByDefaultForNewTasks"
+				:label="$t('user.settings.general.inheritProjectColorByDefaultForNewTasks')"
+			/>
+			<FormCheckbox
 				v-model="settings.emailRemindersEnabled"
 				:label="$t('user.settings.general.emailReminders')"
 			/>

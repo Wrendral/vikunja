@@ -26,7 +26,7 @@
 			</span>
 
 			<ColorBubble
-				v-if="!showProjectSeparately && projectColor !== '' && currentProject?.id !== task.projectId"
+				v-if="!task.inheritProjectColor && !showProjectSeparately && projectColor !== '' && currentProject?.id !== task.projectId"
 				:color="projectColor"
 				class="mie-1"
 			/>
@@ -41,15 +41,15 @@
 						v-tooltip="$t('task.detail.belongsToProject', {project: project.title})"
 						:to="{ name: 'project.index', params: { projectId: task.projectId } }"
 						class="task-project mie-1"
-						:class="{'mie-2': task.hexColor !== ''}"
+						:class="{'mie-2': effectiveTaskColor !== undefined}"
 						@click.stop
 					>
 						{{ project.title }}
 					</RouterLink>
 
 					<ColorBubble
-						v-if="task.hexColor !== ''"
-						:color="getHexColor(task.hexColor)"
+						v-if="effectiveTaskColor !== undefined"
+						:color="effectiveTaskColor"
 						class="mie-1"
 					/>
 	
@@ -148,7 +148,7 @@
 			/>
 
 			<ColorBubble
-				v-if="showProjectSeparately && projectColor !== '' && currentProject?.id !== task.projectId"
+				v-if="!task.inheritProjectColor && showProjectSeparately && projectColor !== '' && currentProject?.id !== task.projectId"
 				:color="projectColor"
 				class="mie-1"
 			/>
@@ -201,7 +201,7 @@
 import {ref, watch, shallowReactive, onMounted, computed} from 'vue'
 import {useI18n} from 'vue-i18n'
 
-import TaskModel, {getHexColor} from '@/models/task'
+import TaskModel, {getEffectiveTaskHexColor} from '@/models/task'
 import type {ITask} from '@/modelTypes/ITask'
 
 import PriorityLabel from '@/components/tasks/partials/PriorityLabel.vue'
@@ -283,6 +283,7 @@ const taskStore = useTaskStore()
 
 const project = computed(() => projectStore.projects[task.value.projectId])
 const projectColor = computed(() => project.value ? project.value?.hexColor : '')
+const effectiveTaskColor = computed(() => getEffectiveTaskHexColor(task.value, project.value))
 
 const showProjectSeparately = computed(() => !props.showProject && currentProject.value?.id !== task.value.projectId && project.value)
 

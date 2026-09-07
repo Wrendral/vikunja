@@ -310,9 +310,17 @@
 								<ColorPicker
 									:ref="e => setFieldRef('color', e)"
 									v-model="taskColor"
+									:class="{'is-inherited': task.inheritProjectColor}"
 									menu-position="bottom"
 									@update:modelValue="saveTask()"
 								/>
+								<FancyCheckbox
+									v-model="task.inheritProjectColor"
+									:disabled="!canWrite"
+									@update:modelValue="saveTask()"
+								>
+									{{ $t('task.attributes.inheritProjectColor') }}
+								</FancyCheckbox>
 							</div>
 						</CustomTransition>
 					</div>
@@ -659,7 +667,7 @@ import {unrefElement, useDebounceFn, useElementSize, useIntersectionObserver, us
 import {klona} from 'klona/lite'
 
 import TaskService from '@/services/task'
-import TaskModel from '@/models/task'
+import TaskModel, {getEffectiveTaskHexColor} from '@/models/task'
 
 import type {ITask} from '@/modelTypes/ITask'
 import type {IAttachment} from '@/modelTypes/IAttachment'
@@ -677,6 +685,7 @@ import Attachments from '@/components/tasks/partials/Attachments.vue'
 import TaskTimeTracking from '@/components/time-tracking/TaskTimeTracking.vue'
 import ChecklistSummary from '@/components/tasks/partials/ChecklistSummary.vue'
 import ColorPicker from '@/components/input/ColorPicker.vue'
+import FancyCheckbox from '@/components/input/FancyCheckbox.vue'
 import Comments from '@/components/tasks/partials/Comments.vue'
 import CreatedUpdated from '@/components/tasks/partials/CreatedUpdated.vue'
 import Datepicker from '@/components/input/Datepicker.vue'
@@ -824,13 +833,7 @@ const canWrite = computed(() => (
 	task.value.maxPermission > PERMISSIONS.READ
 ))
 
-const color = computed(() => {
-	const color = task.value.getHexColor
-		? task.value.getHexColor()
-		: undefined
-
-	return color
-})
+const color = computed(() => getEffectiveTaskHexColor(task.value, project.value))
 
 const isModal = computed(() => Boolean(props.backdropView))
 
@@ -1238,6 +1241,11 @@ function setRelatedTasksActive() {
 	@media screen and (min-width: $desktop) {
 		padding: 1rem;
 	}
+}
+
+.color-picker-container.is-inherited {
+	opacity: .5;
+	pointer-events: none;
 }
 
 .is-modal .task-view {

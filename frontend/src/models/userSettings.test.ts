@@ -32,4 +32,10 @@ describe('UserSettingsModel', () => {
 
 		expect(settings.language).toBe('fr-FR')
 	})
+
+	it('defaults new-task color inheritance to false', () => {
+		const settings = new UserSettingsModel({})
+
+		expect(settings.frontendSettings.inheritProjectColorByDefaultForNewTasks).toBe(false)
+	})
 })

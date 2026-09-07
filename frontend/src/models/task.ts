@@ -1,4 +1,5 @@
 import {PRIORITIES, type Priority} from '@/constants/priorities'
+import {getActivePinia} from 'pinia'
 
 import type {ITask} from '@/modelTypes/ITask'
 import type {IUser} from '@/modelTypes/IUser'
@@ -23,6 +24,7 @@ import SubscriptionModel from './subscription'
 import type {ITaskReminder} from '@/modelTypes/ITaskReminder'
 import TaskReminderModel from '@/models/taskReminder'
 import TaskCommentModel from '@/models/taskComment.ts'
+import {useAuthStore} from '@/stores/auth'
 
 export function	getHexColor(hexColor: string): string | undefined {
 	if (hexColor === '' || hexColor === '#') {
@@ -30,6 +32,27 @@ export function	getHexColor(hexColor: string): string | undefined {
 	}
 
 	return hexColor
+}
+
+export function getEffectiveTaskHexColor(
+	task: Pick<ITask, 'hexColor' | 'inheritProjectColor'>,
+	project?: Pick<IProject, 'hexColor'>,
+): string | undefined {
+	const projectColor = getHexColor(project?.hexColor ?? '')
+	if (task.inheritProjectColor && projectColor !== undefined) {
+		return projectColor
+	}
+
+	return getHexColor(task.hexColor)
+}
+
+function getDefaultInheritProjectColor(): boolean {
+	const pinia = getActivePinia()
+	if (pinia === undefined) {
+		return false
+	}
+
+	return useAuthStore(pinia).settings.frontendSettings.inheritProjectColorByDefaultForNewTasks
 }
 
 /**
@@ -77,6 +100,7 @@ export default class TaskModel extends AbstractModel<ITask> implements ITask {
 	reminders: ITaskReminder[] = []
 	parentTaskId: ITask['id'] = 0
 	hexColor = ''
+	inheritProjectColor = false
 	percentDone = 0
 	relatedTasks:  Partial<Record<IRelationKind, ITask[]>> = {}
 	attachments: IAttachment[] = []
@@ -102,6 +126,9 @@ export default class TaskModel extends AbstractModel<ITask> implements ITask {
 	constructor(data: Partial<ITask> = {}) {
 		super()
 		const labels = (data.labels ?? []).map(label => objectToSnakeCase(label) as Label)
+		if (!Object.hasOwn(data, 'inheritProjectColor') && !Object.hasOwn(data, 'inherit_project_color')) {
+			this.inheritProjectColor = getDefaultInheritProjectColor()
+		}
 		this.assignData(data)
 
 		this.id = Number(this.id)

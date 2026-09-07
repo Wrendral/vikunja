@@ -2,6 +2,7 @@ import {describe, it, expect} from 'vitest'
 import {mount} from '@vue/test-utils'
 import {createI18n} from 'vue-i18n'
 import {createRouter, createMemoryHistory} from 'vue-router'
+import {createPinia} from 'pinia'
 
 import GanttChart from './GanttChart.vue'
 import GanttTimelineHeader from './GanttTimelineHeader.vue'
@@ -11,6 +12,7 @@ import type {ITask} from '@/modelTypes/ITask'
 import type {GanttFilters} from '@/views/project/helpers/useGanttFilters'
 
 const i18n = createI18n({legacy: false, locale: 'en', messages: {en}})
+const pinia = createPinia()
 
 // the dayjs locale sync reads the app-wide i18n instance, not the one installed on the wrapper
 globalI18n.global.locale.value = 'en'
@@ -35,7 +37,7 @@ function mountChart(isLoading: boolean) {
 			defaultTaskEndDate: FILTERS.dateTo,
 		},
 		global: {
-			plugins: [i18n, router],
+			plugins: [i18n, router, pinia],
 		},
 	})
 }
