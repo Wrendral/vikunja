@@ -134,7 +134,7 @@ import Labels from '@/components/tasks/partials/Labels.vue'
 import ChecklistSummary from './ChecklistSummary.vue'
 import CommentCount from './CommentCount.vue'
 
-import {getHexColor, getTaskIdentifier} from '@/models/task'
+import {getEffectiveTaskHexColor, getTaskIdentifier} from '@/models/task'
 import type {ITask} from '@/modelTypes/ITask'
 import type {IProject} from '@/modelTypes/IProject'
 import {SUPPORTED_IMAGE_SUFFIX} from '@/models/attachment'
@@ -166,9 +166,8 @@ const router = useRouter()
 
 const loadingInternal = ref(false)
 
-const color = computed(() => getHexColor(props.task.hexColor))
-
 const projectStore = useProjectStore()
+const color = computed(() => getEffectiveTaskHexColor(props.task, projectStore.projects[props.task.projectId]))
 
 const projectTitle = computed(() => {
 	if (props.projectId === props.task.projectId) {

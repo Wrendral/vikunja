@@ -3,8 +3,8 @@
 		<div class="tw:flex tw:items-center md:tw:items-stretch tw:flex-col tw:gap-1 task-properties">
 			<div class="tw:flex tw:items-center tw:gap-2">
 				<ColorBubble
-					v-if="task.hexColor !== ''"
-					:color="getHexColor(task.hexColor)"
+					v-if="effectiveTaskColor !== undefined"
+					:color="effectiveTaskColor"
 				/>
 				<BaseButton @click="copyUrl">
 					<span class="title task-id">
@@ -83,7 +83,8 @@ import {useCopyToClipboard} from '@/composables/useCopyToClipboard'
 import {useTaskStore} from '@/stores/tasks'
 
 import type {ITask} from '@/modelTypes/ITask'
-import {getHexColor, getTaskIdentifier} from '@/models/task'
+import {getEffectiveTaskHexColor, getTaskIdentifier} from '@/models/task'
+import {useProjectStore} from '@/stores/projects'
 
 const props = defineProps<{
 	task: ITask,
@@ -111,6 +112,8 @@ const taskStore = useTaskStore()
 const loading = computed(() => taskStore.isLoading)
 
 const textIdentifier = computed(() => getTaskIdentifier(props.task))
+const projectStore = useProjectStore()
+const effectiveTaskColor = computed(() => getEffectiveTaskHexColor(props.task, projectStore.projects[props.task.projectId]))
 
 // Since loading is global state, this variable ensures we're only showing the saving icon when saving the description.
 const saving = ref(false)

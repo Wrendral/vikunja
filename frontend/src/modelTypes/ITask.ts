@@ -37,6 +37,7 @@ export interface ITask extends IAbstract {
 	reminders: ITaskReminder[]
 	parentTaskId: ITask['id']
 	hexColor: string
+	inheritProjectColor: boolean
 	percentDone: number
 	relatedTasks: Partial<Record<IRelationKind, ITask[]>>
 	attachments: IAttachment[]

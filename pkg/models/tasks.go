@@ -106,6 +106,7 @@ type Task struct {
 	Labels []*Label `xorm:"-" json:"labels" readOnly:"true" doc:"The labels on this task. Read-only here; use the label-task endpoints to add or remove labels."`
 	// The task color in hex
 	HexColor string `xorm:"varchar(6) null" json:"hex_color" valid:"runelength(0|7)" maxLength:"7" doc:"The task color as a hex string without the leading '#'."`
+	InheritProjectColor bool `xorm:"not null default false" json:"inherit_project_color" doc:"Whether the task displays its project's current color when that project has one, falling back to its own color otherwise."`
 	// Determines how far a task is left from being done
 	PercentDone float64 `xorm:"DOUBLE null" json:"percent_done" doc:"How far the task is from done, between 0 and 1."`
 
@@ -1311,6 +1312,7 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		"start_date",
 		"end_date",
 		"hex_color",
+		"inherit_project_color",
 		"percent_done",
 		"project_id",
 		"bucket_id",
@@ -1362,6 +1364,9 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 		}
 		if !fieldSet["hex_color"] {
 			t.HexColor = ot.HexColor
+		}
+		if !fieldSet["inherit_project_color"] {
+			t.InheritProjectColor = ot.InheritProjectColor
 		}
 		if !fieldSet["percent_done"] {
 			t.PercentDone = ot.PercentDone
@@ -1597,6 +1602,9 @@ func (t *Task) updateSingleTask(s *xorm.Session, a web.Auth, fields []string) (e
 	// Color
 	if t.HexColor == "" {
 		ot.HexColor = ""
+	}
+	if !t.InheritProjectColor {
+		ot.InheritProjectColor = false
 	}
 	// Percent Done
 	if t.PercentDone == 0 {

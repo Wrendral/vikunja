@@ -94,7 +94,7 @@ import {useRouter} from 'vue-router'
 import dayjs from 'dayjs'
 import {useDayjsLanguageSync} from '@/i18n/useDayjsLanguageSync'
 
-import {getHexColor} from '@/models/task'
+import {getEffectiveTaskHexColor} from '@/models/task'
 import {buildGanttTaskTree, type GanttTaskTreeNode} from '@/helpers/ganttTaskTree'
 import {buildRelationArrows, type GanttBarPosition, type GanttArrow} from '@/helpers/ganttRelationArrows'
 
@@ -113,6 +113,7 @@ import Loading from '@/components/misc/Loading.vue'
 
 import {MILLISECONDS_A_DAY} from '@/constants/date'
 import {roundToNaturalDayBoundary} from '@/helpers/time/roundToNaturalDayBoundary'
+import {useProjectStore} from '@/stores/projects'
 
 const props = defineProps<{
 	isLoading: boolean,
@@ -136,6 +137,7 @@ const dayjsLanguageLoading = useDayjsLanguageSync(dayjs)
 const ganttContainer = ref<HTMLElement | null>(null)
 const ganttChartBodyRef = ref<InstanceType<typeof GanttChartBody> | null>(null)
 const router = useRouter()
+const projectStore = useProjectStore()
 
 const isDragging = ref(false)
 const isResizing = ref(false)
@@ -279,7 +281,7 @@ function transformTaskToGanttBar(node: GanttTaskTreeNode): GanttBarModel {
 		dateType = 'both'
 	}
 
-	const taskColor = getHexColor(t.hexColor)
+	const taskColor = getEffectiveTaskHexColor(t, projectStore.projects[t.projectId])
 
 	return {
 		id: String(t.id),

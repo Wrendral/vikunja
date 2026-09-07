@@ -156,6 +156,7 @@ export default class TaskService extends AbstractService<ITask> {
 			end_date: processed.end_date,
 			priority: processed.priority,
 			hex_color: processed.hex_color,
+			inherit_project_color: processed.inherit_project_color,
 			percent_done: processed.percent_done,
 			repeat_after: processed.repeat_after,
 			repeat_mode: processed.repeat_mode,

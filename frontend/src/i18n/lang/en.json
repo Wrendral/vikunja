@@ -149,6 +149,7 @@
         "playSoundWhenDone": "Play a sound when marking tasks as done",
         "allowIconChanges": "Show special logos during certain times",
         "alwaysShowBucketTaskCount": "Always show task count on Kanban buckets",
+        "inheritProjectColorByDefaultForNewTasks": "Use the project color by default for new tasks",
         "defaultTaskRelationType": "Default task relation type",
         "weekStart": "Week starts on",
         "weekStartSunday": "Sunday",
@@ -1070,6 +1071,7 @@
     "attributes": {
       "assignees": "Assignees",
       "color": "Color",
+      "inheritProjectColor": "Use the project color",
       "created": "Created",
       "createdBy": "Created By",
       "description": "Description",

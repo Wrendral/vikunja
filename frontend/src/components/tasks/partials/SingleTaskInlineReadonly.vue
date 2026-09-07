@@ -8,14 +8,14 @@
 				v-if="showProject && typeof project !== 'undefined'"
 				v-tooltip="$t('task.detail.belongsToProject', {project: project.title})"
 				class="task-project"
-				:class="{'mie-2': task.hexColor !== ''}"
+				:class="{'mie-2': effectiveTaskColor !== undefined}"
 			>
 				{{ project.title }}
 			</span>
 
 			<ColorBubble
-				v-if="task.hexColor !== ''"
-				:color="getHexColor(task.hexColor)"
+				v-if="effectiveTaskColor !== undefined"
+				:color="effectiveTaskColor"
 				class="mie-1"
 			/>
 
@@ -103,7 +103,7 @@
 <script setup lang="ts">
 import {computed} from 'vue'
 
-import {getHexColor} from '@/models/task'
+import {getEffectiveTaskHexColor} from '@/models/task'
 import type {ITask} from '@/modelTypes/ITask'
 
 import PriorityLabel from '@/components/tasks/partials/PriorityLabel.vue'
@@ -127,6 +127,7 @@ const props = withDefaults(defineProps<{
 const projectStore = useProjectStore()
 
 const project = computed(() => projectStore.projects[props.task.projectId])
+const effectiveTaskColor = computed(() => getEffectiveTaskHexColor(props.task, project.value))
 </script>
 
 <style lang="scss" scoped>

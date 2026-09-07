@@ -15,6 +15,7 @@ export interface IFrontendSettings {
 	quickAddMagicMode: PrefixMode
 	colorSchema: BasicColorSchema
 	allowIconChanges: boolean
+	inheritProjectColorByDefaultForNewTasks: boolean
 	filterIdUsedOnOverview: IProject['id'] | null
 	defaultView?: DefaultProjectViewKind
 	minimumPriority?: Priority
