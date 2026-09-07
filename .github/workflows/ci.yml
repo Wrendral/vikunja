@@ -29,6 +29,8 @@ jobs:
   release:
     name: Release
     if: ${{ github.ref_type == 'tag' || github.ref_name == 'main' }}
+    permissions:
+      contents: write
     uses: ./.github/workflows/release.yml
     needs:
       - test
