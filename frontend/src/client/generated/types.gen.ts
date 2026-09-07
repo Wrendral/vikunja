@@ -1971,10 +1971,6 @@ export type Task = {
      */
     hex_color?: string;
     /**
-     * Whether the task displays its project's current color when that project has one, falling back to its own color otherwise.
-     */
-    inherit_project_color?: boolean;
-    /**
      * The unique, numeric id of this task.
      */
     readonly id?: number;
@@ -1986,6 +1982,10 @@ export type Task = {
      * The per-project task index, assigned by the server.
      */
     readonly index?: number;
+    /**
+     * Whether the task displays its project's current color when that project has one, falling back to its own color otherwise.
+     */
+    inherit_project_color?: boolean;
     /**
      * Whether the requesting user has favorited this task. Per-user, so it differs between callers.
      */
@@ -2308,10 +2308,6 @@ export type TaskReadOneBody = {
      */
     hex_color?: string;
     /**
-     * Whether the task displays its project's current color when that project has one, falling back to its own color otherwise.
-     */
-    inherit_project_color?: boolean;
-    /**
      * The unique, numeric id of this task.
      */
     readonly id?: number;
@@ -2323,6 +2319,10 @@ export type TaskReadOneBody = {
      * The per-project task index, assigned by the server.
      */
     readonly index?: number;
+    /**
+     * Whether the task displays its project's current color when that project has one, falling back to its own color otherwise.
+     */
+    inherit_project_color?: boolean;
     /**
      * Whether the requesting user has favorited this task. Per-user, so it differs between callers.
      */
