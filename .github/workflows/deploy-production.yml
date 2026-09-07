@@ -32,7 +32,7 @@ jobs:
           fetch-depth: 0
       - name: Git describe
         id: describe
-        uses: proudust/gh-describe@80412be8ce0e77d8afba6b340e34790bc772aa45 # v2.2.0
+        run: echo "describe=$(git describe --tags --always --dirty)" >> "$GITHUB_OUTPUT"
       - name: Log in to GHCR
         uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
