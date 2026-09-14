@@ -2559,3 +2559,111 @@ func TestTaskCollection_DateFilterTimezoneBoundary(t *testing.T) {
 	}
 	assert.Truef(t, found, "task due %s (one hour before local midnight) should match", task.DueDate)
 }
+
+func TestTaskCollection_ReadAll_IncludeSubprojects(t *testing.T) {
+	db.LoadAndAssertFixtures(t)
+	s := db.NewSession()
+	defer s.Close()
+
+	const (
+		siblingProjectID            = int64(1001)
+		archivedDescendantProjectID = int64(1002)
+		parentTaskID                = int64(1001)
+		grandchildTaskID            = int64(1002)
+		siblingTaskID               = int64(1003)
+		archivedTaskID              = int64(1004)
+	)
+
+	projects := []*Project{
+		{ID: siblingProjectID, Title: "Sibling of the requested project", OwnerID: 6, ParentProjectID: Ptr(int64(27))},
+		{ID: archivedDescendantProjectID, Title: "Archived descendant", OwnerID: 6, ParentProjectID: Ptr(int64(12)), IsArchived: true},
+	}
+	for _, project := range projects {
+		_, err := s.Insert(project)
+		require.NoError(t, err)
+		require.NoError(t, insertProjectAncestors(s, project.ID, project.parentID()))
+	}
+
+	_, err := s.Insert([]*Task{
+		{ID: parentTaskID, Title: "parent task", ProjectID: 12, CreatedByID: 6, Index: 1},
+		{ID: grandchildTaskID, Title: "grandchild task", ProjectID: 26, CreatedByID: 6, Index: 1},
+		{ID: siblingTaskID, Title: "sibling task", ProjectID: siblingProjectID, CreatedByID: 6, Index: 1},
+		{ID: archivedTaskID, Title: "archived descendant task", ProjectID: archivedDescendantProjectID, CreatedByID: 6, Index: 1},
+	})
+	require.NoError(t, err)
+
+	readTaskIDs := func(t *testing.T, collection *TaskCollection, a web.Auth) []int64 {
+		t.Helper()
+		result, _, _, err := collection.ReadAll(s, a, "", 0, 100)
+		require.NoError(t, err)
+		tasks, ok := result.([]*Task)
+		require.True(t, ok)
+		ids := make([]int64, 0, len(tasks))
+		for _, task := range tasks {
+			ids = append(ids, task.ID)
+		}
+		return ids
+	}
+
+	t.Run("off by default", func(t *testing.T) {
+		ids := readTaskIDs(t, &TaskCollection{ProjectID: 12, SortBy: []string{"id"}}, &user.User{ID: 6})
+		assert.Equal(t, []int64{parentTaskID}, ids)
+	})
+
+	t.Run("includes every unarchived descendant depth but not a sibling", func(t *testing.T) {
+		ids := readTaskIDs(t, &TaskCollection{
+			ProjectID:          12,
+			IncludeSubprojects: true,
+			SortBy:             []string{"id"},
+		}, &user.User{ID: 6})
+		assert.Equal(t, []int64{39, parentTaskID, grandchildTaskID}, ids)
+		assert.NotContains(t, ids, siblingTaskID)
+		assert.NotContains(t, ids, archivedTaskID)
+	})
+
+	t.Run("uses the persisted view setting", func(t *testing.T) {
+		_, err := s.ID(45).Cols("filter").Update(&ProjectView{Filter: &TaskCollection{IncludeSubprojects: true}})
+		require.NoError(t, err)
+
+		ids := readTaskIDs(t, &TaskCollection{ProjectID: 12, ProjectViewID: 45, SortBy: []string{"id"}}, &user.User{ID: 6})
+		assert.Equal(t, []int64{39, parentTaskID, grandchildTaskID}, ids)
+	})
+
+	t.Run("drops position sorting and keeps deterministic id order", func(t *testing.T) {
+		ids := readTaskIDs(t, &TaskCollection{
+			ProjectID:          12,
+			ProjectViewID:      45,
+			IncludeSubprojects: true,
+			SortBy:             []string{"position"},
+			OrderBy:            []string{"desc"},
+		}, &user.User{ID: 6})
+		assert.Equal(t, []int64{39, parentTaskID, grandchildTaskID}, ids)
+	})
+
+	t.Run("is enabled for kanban", func(t *testing.T) {
+		collection := &TaskCollection{ProjectID: 12, ProjectViewID: 48, IncludeSubprojects: true}
+		_, _, _, err := collection.ReadAll(s, &user.User{ID: 6}, "", 0, 100)
+		require.NoError(t, err)
+		assert.True(t, collection.IncludeSubprojects)
+	})
+
+	t.Run("is ignored for link shares", func(t *testing.T) {
+		collection := &TaskCollection{ProjectID: 12, IncludeSubprojects: true, SortBy: []string{"id"}}
+		ids := readTaskIDs(t, collection, &LinkSharing{ID: 1001, ProjectID: 12, SharedByID: 6})
+		assert.Equal(t, []int64{parentTaskID}, ids)
+		assert.False(t, collection.IncludeSubprojects)
+	})
+
+	t.Run("is ignored for global and saved-filter collections", func(t *testing.T) {
+		global := &TaskCollection{IncludeSubprojects: true, SortBy: []string{"id"}}
+		globalIDs := readTaskIDs(t, global, &user.User{ID: 1})
+		globalWithoutFlagIDs := readTaskIDs(t, &TaskCollection{SortBy: []string{"id"}}, &user.User{ID: 1})
+		assert.Equal(t, globalWithoutFlagIDs, globalIDs)
+		assert.False(t, global.IncludeSubprojects)
+
+		savedFilter := &TaskCollection{ProjectID: -2, IncludeSubprojects: true, SortBy: []string{"id"}}
+		savedFilterIDs := readTaskIDs(t, savedFilter, &user.User{ID: 1})
+		savedFilterWithoutFlagIDs := readTaskIDs(t, &TaskCollection{ProjectID: -2, SortBy: []string{"id"}}, &user.User{ID: 1})
+		assert.Equal(t, savedFilterWithoutFlagIDs, savedFilterIDs)
+	})
+}

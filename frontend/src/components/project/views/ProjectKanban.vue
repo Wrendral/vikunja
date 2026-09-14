@@ -325,6 +325,7 @@ import {calculateItemPosition} from '@/helpers/calculateItemPosition'
 
 import {isSavedFilter, useSavedFilter} from '@/services/savedFilter'
 import {useTaskDragToProject} from '@/composables/useTaskDragToProject'
+import {useIncludeSubprojects} from '@/composables/useIncludeSubprojects'
 import {success} from '@/message'
 import {useProjectStore} from '@/stores/projects'
 import type {TaskFilterParams} from '@/services/taskCollection'
@@ -447,6 +448,7 @@ const bucketDraggableComponentData = computed(() => ({
 }))
 const project = computed(() => projectId.value ? projectStore.projects[projectId.value] : null)
 const view = computed(() => project.value?.views.find(v => v.id === props.viewId) as IProjectView || null)
+const includeSubprojects = useIncludeSubprojects(() => view.value)
 const canWrite = computed(() => baseStore.currentProject?.maxPermission > Permissions.READ && view.value.bucketConfigurationMode === 'manual')
 const canCreateTasks = computed(() => canWrite.value && projectId.value > 0)
 
@@ -500,13 +502,23 @@ watch(
 			return
 		}
 		collapsedBuckets.value = getCollapsedBucketState(projectId)
-		kanbanStore.loadBucketsForProject(projectId, viewId, params)
+		kanbanStore.loadBucketsForProject(projectId, viewId, {
+			...params,
+			include_subprojects: includeSubprojects.value,
+		})
 	},
 	{
 		immediate: true,
 		deep: true,
 	},
 )
+
+watch(includeSubprojects, () => {
+	kanbanStore.loadBucketsForProject(projectId.value, props.viewId, {
+		...params.value,
+		include_subprojects: includeSubprojects.value,
+	})
+})
 
 function setTaskContainerRef(id: IBucket['id'], el: HTMLElement) {
 	if (!el) return
@@ -526,7 +538,7 @@ function handleTaskContainerScroll(id: IBucket['id'], el: HTMLElement) {
 	kanbanStore.loadNextTasksForBucket(
 		projectId.value,
 		props.viewId,
-		params.value,
+		{...params.value, include_subprojects: includeSubprojects.value},
 		id,
 	)
 }
@@ -771,7 +783,10 @@ function handleRecurringTaskCompletion() {
 		
 	if (filterContainsDateFields) {
 		// Reload the kanban board to refresh tasks that now match/don't match the filter
-		kanbanStore.loadBucketsForProject(projectId.value, props.viewId, params.value)
+		kanbanStore.loadBucketsForProject(projectId.value, props.viewId, {
+			...params.value,
+			include_subprojects: includeSubprojects.value,
+		})
 	}
 }
 

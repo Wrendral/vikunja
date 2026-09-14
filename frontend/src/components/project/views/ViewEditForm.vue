@@ -71,7 +71,6 @@ const transformFilterFromApi = (filterInput?: IFilters): IFilters => {
 	filter.filter_include_nulls = filterInput?.filter_include_nulls
 		?? camelCaseFilter?.filterIncludeNulls
 		?? false
-
 	return filter
 }
 

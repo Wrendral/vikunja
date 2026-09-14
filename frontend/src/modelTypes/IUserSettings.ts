@@ -16,6 +16,7 @@ export interface IFrontendSettings {
 	colorSchema: BasicColorSchema
 	allowIconChanges: boolean
 	inheritProjectColorByDefaultForNewTasks: boolean
+	includeSubprojects: boolean
 	filterIdUsedOnOverview: IProject['id'] | null
 	defaultView?: DefaultProjectViewKind
 	minimumPriority?: Priority

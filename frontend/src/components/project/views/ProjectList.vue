@@ -51,13 +51,14 @@
 						v-if="tasks && tasks.length > 0"
 						v-model="tasks"
 						:group="{name: 'tasks', put: false}"
-						:disabled="!canDragTasks || !isPositionSorting"
+						:sort="canReorderTasks"
+						:disabled="!canDragTasks || !canReorderTasks"
 						item-key="id"
 						tag="ul"
 						:component-data="{
 							class: {
 								tasks: true,
-								'dragging-disabled': !canDragTasks || !isPositionSorting
+								'dragging-disabled': !canDragTasks || !canReorderTasks
 							},
 							type: 'transition-group'
 						}"
@@ -79,7 +80,7 @@
 								@taskUpdated="updateTasks"
 							>
 								<span
-									v-if="canDragTasks && isPositionSorting"
+									v-if="canDragTasks && canReorderTasks"
 									class="icon handle"
 								>
 									<Icon icon="grip-lines" />
@@ -113,6 +114,7 @@ import Pagination from '@/components/misc/Pagination.vue'
 import SortPopup from '@/components/project/partials/SortPopup.vue'
 
 import {useTaskList} from '@/composables/useTaskList'
+import {useIncludeSubprojects} from '@/composables/useIncludeSubprojects'
 import {useTaskDragToProject} from '@/composables/useTaskDragToProject'
 import {shouldShowTaskInListView} from '@/composables/useTaskListFiltering'
 import {PERMISSIONS as Permissions} from '@/constants/permissions'
@@ -138,6 +140,11 @@ const projectId = toRef(props, 'projectId')
 
 defineOptions({name: 'List'})
 
+const baseStore = useBaseStore()
+const project = computed(() => baseStore.currentProject)
+const currentView = computed(() => project.value?.views.find(view => view.id === props.viewId))
+const includeSubprojects = useIncludeSubprojects(() => currentView.value)
+
 const ctaVisible = ref(false)
 
 const drag = ref(false)
@@ -157,6 +164,7 @@ const {
 	() => projectId.value === -1
 		? ['comment_count', 'is_unread']
 		: ['subtasks', 'comment_count', 'is_unread'],
+	() => includeSubprojects.value,
 )
 
 const taskPositionService = ref(new TaskPositionService())
@@ -174,10 +182,10 @@ watch(
 
 const isPositionSorting = computed(() => 'position' in sortByParam.value)
 
-const baseStore = useBaseStore()
+const canReorderTasks = computed(() => isPositionSorting.value && !includeSubprojects.value)
+
 const taskStore = useTaskStore()
 const {handleTaskDropToProject} = useTaskDragToProject()
-const project = computed(() => baseStore.currentProject)
 
 const canWrite = computed(() => {
 	return project.value?.maxPermission > Permissions.READ && project.value?.id > 0
@@ -248,15 +256,25 @@ async function saveTaskPosition(e: { originalEvent?: MouseEvent, to: HTMLElement
 
 	// Check if dropped on a sidebar project
 	const {moved} = await handleTaskDropToProject(e, (task) => {
+		if (includeSubprojects.value) {
+			return
+		}
 		tasks.value = tasks.value.filter(t => t.id !== task.id)
 	})
 
 	if (moved) {
+		if (includeSubprojects.value) {
+			await loadTasks(false)
+		}
 		return
 	}
 
 	// If dropped outside this list
 	if (e.to !== e.from) {
+		return
+	}
+
+	if (!canReorderTasks.value) {
 		return
 	}
 

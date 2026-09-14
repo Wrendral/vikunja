@@ -27,33 +27,38 @@ enableAutoUnmount(afterEach)
 
 describe('buildStoredQuery', () => {
 	it('includes sort when set', () => {
-		expect(buildStoredQuery({sort: 'due_date:asc', filter: undefined, s: undefined, page: 1}))
+		expect(buildStoredQuery({sort: 'due_date:asc', filter: undefined, s: undefined, includeSubprojects: undefined, page: 1}))
 			.toEqual({sort: 'due_date:asc'})
 	})
 
 	it('includes filter and search when set', () => {
-		expect(buildStoredQuery({sort: undefined, filter: 'done = false', s: 'foo', page: 1}))
+		expect(buildStoredQuery({sort: undefined, filter: 'done = false', s: 'foo', includeSubprojects: undefined, page: 1}))
 			.toEqual({filter: 'done = false', s: 'foo'})
 	})
 
 	it('omits page when it equals the default of 1', () => {
-		expect(buildStoredQuery({sort: 'id:desc', filter: undefined, s: undefined, page: 1}))
+		expect(buildStoredQuery({sort: 'id:desc', filter: undefined, s: undefined, includeSubprojects: undefined, page: 1}))
 			.toEqual({sort: 'id:desc'})
 	})
 
 	it('includes page when greater than 1', () => {
-		expect(buildStoredQuery({sort: undefined, filter: undefined, s: undefined, page: 3}))
+		expect(buildStoredQuery({sort: undefined, filter: undefined, s: undefined, includeSubprojects: undefined, page: 3}))
 			.toEqual({page: '3'})
 	})
 
 	it('returns an empty object when nothing is set', () => {
-		expect(buildStoredQuery({sort: undefined, filter: undefined, s: undefined, page: 1}))
+		expect(buildStoredQuery({sort: undefined, filter: undefined, s: undefined, includeSubprojects: undefined, page: 1}))
 			.toEqual({})
 	})
 
 	it('skips empty strings', () => {
-		expect(buildStoredQuery({sort: '', filter: '', s: '', page: 1}))
+		expect(buildStoredQuery({sort: '', filter: '', s: '', includeSubprojects: '', page: 1}))
 			.toEqual({})
+	})
+
+	it('includes the subproject override when set', () => {
+		expect(buildStoredQuery({sort: undefined, filter: undefined, s: undefined, includeSubprojects: 'true', page: 1}))
+			.toEqual({include_subprojects: 'true'})
 	})
 })
 
@@ -63,7 +68,7 @@ function lastRequestParams(): Record<string, unknown> {
 	return getAll.mock.calls.at(-1)?.[1] as Record<string, unknown>
 }
 
-async function mountTaskList(query: Record<string, string>): Promise<Router> {
+async function mountTaskList(query: Record<string, string>, includeSubprojects = false): Promise<Router> {
 	const router = createRouter({
 		history: createMemoryHistory(),
 		routes: [{path: '/', name: 'home', component: {render: () => null}}],
@@ -73,7 +78,7 @@ async function mountTaskList(query: Record<string, string>): Promise<Router> {
 
 	const TestComponent = defineComponent({
 		setup() {
-			useTaskList(() => 1, () => 1)
+			useTaskList(() => 1, () => 1, undefined, undefined, () => includeSubprojects)
 			return () => h('div')
 		},
 	})
@@ -118,6 +123,16 @@ describe('useTaskList sort handling for relevance ranking', () => {
 		// id always sorts last so other sort columns take precedence.
 		expect(params.sort_by).toEqual(['id'])
 		expect(params.order_by).toEqual(['desc'])
+	})
+
+	it('sends include_subprojects when enabled by the view', async () => {
+		await mountTaskList({}, true)
+		expect(lastRequestParams().include_subprojects).toBe(true)
+	})
+
+	it('sends include_subprojects when enabled by the url state', async () => {
+		await mountTaskList({include_subprojects: 'true'})
+		expect(lastRequestParams().include_subprojects).toBe(true)
 	})
 })
 

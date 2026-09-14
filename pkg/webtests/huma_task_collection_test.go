@@ -50,6 +50,40 @@ func TestHumaTaskCollection(t *testing.T) {
 		return humaRequest(t, h.e, http.MethodGet, path, "", tok, "")
 	}
 
+	t.Run("include_subprojects", func(t *testing.T) {
+		t.Run("off by default", func(t *testing.T) {
+			rec := get("/api/v2/projects/32/views/125/tasks")
+			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+			assert.Contains(t, rec.Body.String(), `task #21`)
+			assert.NotContains(t, rec.Body.String(), `task #24`)
+		})
+
+		t.Run("binds on a project view", func(t *testing.T) {
+			rec := get("/api/v2/projects/32/views/125/tasks?include_subprojects=true")
+			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+			assert.Contains(t, rec.Body.String(), `task #21`)
+			assert.Contains(t, rec.Body.String(), `task #24`)
+		})
+
+		t.Run("binds on a project task list", func(t *testing.T) {
+			rec := get("/api/v2/projects/32/tasks?include_subprojects=true")
+			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+			assert.Contains(t, rec.Body.String(), `task #21`)
+			assert.Contains(t, rec.Body.String(), `task #24`)
+		})
+
+		t.Run("binds on kanban", func(t *testing.T) {
+			rec := get("/api/v2/projects/32/views/128/tasks?include_subprojects=true")
+			require.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+			assert.Contains(t, rec.Body.String(), `task #24`)
+		})
+
+		t.Run("is ignored for global tasks", func(t *testing.T) {
+			rec := get("/api/v2/tasks?include_subprojects=true")
+			assert.Equal(t, http.StatusOK, rec.Code, "body: %s", rec.Body.String())
+		})
+	})
+
 	t.Run("project-scoped", func(t *testing.T) {
 		t.Run("returns the project's tasks", func(t *testing.T) {
 			rec := get("/api/v2/projects/1/tasks")

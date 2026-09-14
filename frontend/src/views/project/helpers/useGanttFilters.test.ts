@@ -1,14 +1,16 @@
 import {describe, expect, it, vi} from 'vitest'
-import {reactive, ref, type Ref} from 'vue'
+import {nextTick, reactive, ref, type Ref} from 'vue'
 import type {RouteLocationNormalized} from 'vue-router'
+
+const routerPush = vi.hoisted(() => vi.fn())
 
 vi.mock('vue-router', async importOriginal => ({
 	...await importOriginal<typeof import('vue-router')>(),
 	useRouter: () => ({
-		resolve: (to: {params: {projectId: number, viewId: number}}) => ({
-			fullPath: `/projects/${to.params.projectId}/${to.params.viewId}`,
+		resolve: (to: {params: {projectId: number, viewId: number}, query?: Record<string, string>}) => ({
+			fullPath: `/projects/${to.params.projectId}/${to.params.viewId}?${new URLSearchParams(to.query).toString()}`,
 		}),
-		push: vi.fn(),
+		push: routerPush,
 	}),
 }))
 
@@ -46,7 +48,7 @@ describe('useGanttFilters', () => {
 			fullPath: '/tasks/3619',
 		})
 
-		const {filters} = useGanttFilters(route, ref(5), ref(2759))
+		const {filters} = useGanttFilters(route, ref(5), ref(2759), ref(false))
 
 		expect(filters.value.projectId).toBe(5)
 		expect(filters.value.viewId).toBe(2759)
@@ -60,9 +62,25 @@ describe('useGanttFilters', () => {
 			fullPath: '/projects/5/2759?dateFrom=2024-01-01&dateTo=2024-02-01',
 		})
 
-		const {filters} = useGanttFilters(route, ref(5), ref(2759))
+		const {filters} = useGanttFilters(route, ref(5), ref(2759), ref(false))
 
 		expect(filters.value.dateFrom).toBe(new Date(2024, 0, 1).toISOString())
 		expect(filters.value.dateTo).toBe(new Date(2024, 1, 1).toISOString())
+	})
+
+	it('preserves the include_subprojects query while changing gantt filters', async () => {
+		routerPush.mockClear()
+		const route = routeRef({
+			name: 'project.view',
+			params: {projectId: '5', viewId: '2759'},
+			query: {include_subprojects: 'true'},
+			fullPath: '/projects/5/2759?include_subprojects=true',
+		})
+
+		const {filters} = useGanttFilters(route, ref(5), ref(2759), ref(true))
+		filters.value.showTasksWithoutDates = true
+		await nextTick()
+
+		expect(routerPush).toHaveBeenLastCalledWith(expect.stringContaining('include_subprojects=true'))
 	})
 })

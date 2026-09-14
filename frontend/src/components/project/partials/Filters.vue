@@ -40,7 +40,7 @@
 			<XButton
 				variant="secondary"
 				class="mie-2"
-				:disabled="filterQuery === ''"
+				:disabled="!hasActiveFilters"
 				@click.prevent.stop="clearFiltersAndEmit"
 			>
 				{{ $t('filters.clear') }}
@@ -122,6 +122,10 @@ const projectStore = useProjectStore()
 
 const filterInputRef = ref()
 
+const hasActiveFilters = computed(() => {
+	return filterQuery.value !== '' || params.value.filter_include_nulls
+})
+
 // Using watchDebounced to prevent the filter re-triggering itself.
 watch(
 	() => props.modelValue,
@@ -186,6 +190,7 @@ function changeAndEmitButton() {
 
 function clearFiltersAndEmit() {
 	filterQuery.value = ''
+	params.value.filter_include_nulls = false
 	changeAndEmitButton()
 }
 

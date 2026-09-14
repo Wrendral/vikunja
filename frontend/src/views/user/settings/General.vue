@@ -87,6 +87,10 @@
 				:label="$t('user.settings.general.inheritProjectColorByDefaultForNewTasks')"
 			/>
 			<FormCheckbox
+				v-model="settings.frontendSettings.includeSubprojects"
+				:label="$t('user.settings.general.includeSubprojects')"
+			/>
+			<FormCheckbox
 				v-model="settings.emailRemindersEnabled"
 				:label="$t('user.settings.general.emailReminders')"
 			/>

@@ -115,13 +115,16 @@ import {MILLISECONDS_A_DAY} from '@/constants/date'
 import {roundToNaturalDayBoundary} from '@/helpers/time/roundToNaturalDayBoundary'
 import {useProjectStore} from '@/stores/projects'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
 	isLoading: boolean,
 	filters: GanttFilters,
+	includeSubprojects?: boolean,
 	tasks: Map<ITask['id'], ITask>,
 	defaultTaskStartDate: DateISO
 	defaultTaskEndDate: DateISO
-}>()
+}>(), {
+	includeSubprojects: false,
+})
 
 const emit = defineEmits<{
   (e: 'update:task', task: ITaskPartialWithId): void
@@ -247,6 +250,13 @@ function getRoundedDate(value: string | Date | undefined, fallback: Date | strin
 	return roundToNaturalDayBoundary(value ? new Date(value) : new Date(fallback), isStart)
 }
 
+function getTaskProjectTitle(task: ITask): string | undefined {
+	if (!props.includeSubprojects || task.projectId === filters.value.projectId) {
+		return undefined
+	}
+	return projectStore.projects[task.projectId]?.title
+}
+
 function transformTaskToGanttBar(node: GanttTaskTreeNode): GanttBarModel {
 	const t = node.task
 	const DEFAULT_SPAN_DAYS = 7
@@ -289,6 +299,7 @@ function transformTaskToGanttBar(node: GanttTaskTreeNode): GanttBarModel {
 		end: endDate,
 		meta: {
 			label: t.title,
+			projectTitle: getTaskProjectTitle(t),
 			task: t,
 			color: taskColor,
 			hasActualDates: Boolean(t.startDate && (t.endDate || t.dueDate)),

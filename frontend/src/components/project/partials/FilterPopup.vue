@@ -89,17 +89,17 @@ function showResults() {
 	modalOpen.value = false
 }
 
+const currentView = computed(() => {
+	if (!props.projectId || !props.viewId) return
+	return projectStore.projects[props.projectId]?.views.find(view => view.id === props.viewId)
+})
+
 const filterFromView = computed(() => {
 	if (!props.projectId || !props.viewId) {
 		return
 	}
 	
-	const project = projectStore.projects[props.projectId]
-	if (!project) {
-		return
-	}
-	const view = project.views.find(v => v.id === props.viewId)
-	return view?.filter?.filter
+	return currentView.value?.filter?.filter
 })
 </script>
 
