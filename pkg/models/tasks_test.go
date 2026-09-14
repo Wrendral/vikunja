@@ -803,6 +803,11 @@ func TestHardDeleteTask(t *testing.T) {
 	require.NoError(t, err)
 	_, err = s.Insert(&TaskUnreadStatus{TaskID: 1, UserID: 2})
 	require.NoError(t, err)
+	_, err = s.Insert(
+		&TaskIndexAlias{ProjectID: 2, Index: 99, TaskID: 1},
+		&TaskIndexAlias{ProjectID: 3, Index: 99, TaskID: 1},
+	)
+	require.NoError(t, err)
 	_, err = s.Insert(&Subscription{EntityType: SubscriptionEntityTask, EntityID: 1, UserID: 2})
 	require.NoError(t, err)
 	// Comment 1 belongs to task 1
@@ -830,6 +835,7 @@ func TestHardDeleteTask(t *testing.T) {
 	db.AssertMissing(t, "task_relations", map[string]interface{}{"other_task_id": 1})
 	db.AssertMissing(t, "favorites", map[string]interface{}{"entity_id": 1, "kind": FavoriteKindTask})
 	db.AssertMissing(t, "subscriptions", map[string]interface{}{"entity_id": 1, "entity_type": SubscriptionEntityTask})
+	db.AssertMissing(t, "task_index_aliases", map[string]interface{}{"task_id": 1})
 	db.AssertMissing(t, "reactions", map[string]interface{}{"entity_id": 1, "entity_kind": ReactionKindTask})
 	db.AssertMissing(t, "reactions", map[string]interface{}{"entity_id": 1, "entity_kind": ReactionKindComment})
 	// The attachment files are gone too
@@ -1661,4 +1667,30 @@ func TestTaskIndexUniqueConstraint(t *testing.T) {
 		CreatedByID: 1,
 	})
 	require.Error(t, err, "unique constraint on (project_id, index) must reject duplicates")
+}
+
+func TestGetTaskByIDSimpleMemo(t *testing.T) {
+	db.LoadAndAssertFixtures(t)
+	t.Cleanup(func() { db.LoadAndAssertFixtures(t) })
+	s := db.NewSession()
+	defer s.Close()
+	require.NoError(t, s.Commit())
+
+	first, err := GetTaskByIDSimple(s, 1)
+	require.NoError(t, err)
+	assert.Equal(t, "task #1", first.Title)
+	first.Title = "mutated"
+
+	updateTitleBehindTheBack(t, 1, &Task{Title: behindTheBackTitle})
+
+	second, err := GetTaskByIDSimple(s, 1)
+	require.NoError(t, err)
+	assert.Equal(t, "task #1", second.Title, "a re-read that reaches the db would see the other session's write")
+
+	_, err = s.ID(2).Cols("title").Update(&Task{Title: "any write invalidates the memo"})
+	require.NoError(t, err)
+
+	afterWrite, err := GetTaskByIDSimple(s, 1)
+	require.NoError(t, err)
+	assert.Equal(t, behindTheBackTitle, afterWrite.Title)
 }

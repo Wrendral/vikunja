@@ -131,9 +131,10 @@
 								</div>
 								<div class="date-input">
 									<Datepicker
-										:ref="e => setFieldRef('dueDate', e)"
+										ref="dueDatePicker"
 										v-model="task.dueDate"
 										:choose-date-label="$t('task.detail.chooseDueDate')"
+										:title="$t('task.attributes.dueDate')"
 										:disabled="taskService.loading || !canWrite"
 										@closeOnChange="saveTask()"
 									/>
@@ -186,9 +187,10 @@
 								</div>
 								<div class="date-input">
 									<Datepicker
-										:ref="e => setFieldRef('startDate', e)"
+										ref="startDatePicker"
 										v-model="task.startDate"
 										:choose-date-label="$t('task.detail.chooseStartDate')"
+										:title="$t('task.attributes.startDate')"
 										:disabled="taskService.loading || !canWrite"
 										@closeOnChange="saveTask()"
 									/>
@@ -220,9 +222,10 @@
 								</div>
 								<div class="date-input">
 									<Datepicker
-										:ref="e => setFieldRef('endDate', e)"
+										ref="endDatePicker"
 										v-model="task.endDate"
 										:choose-date-label="$t('task.detail.chooseEndDate')"
+										:title="$t('task.attributes.endDate')"
 										:disabled="taskService.loading || !canWrite"
 										@closeOnChange="saveTask()"
 									/>
@@ -660,7 +663,7 @@
 </template>
 
 <script lang="ts" setup>
-import {ref, reactive, shallowReactive, computed, watch, nextTick, onMounted} from 'vue'
+import {ref, reactive, shallowReactive, computed, watch, nextTick, onMounted, useTemplateRef} from 'vue'
 import {useRouter, useRoute, type RouteLocation, onBeforeRouteLeave} from 'vue-router'
 import {useI18n} from 'vue-i18n'
 import {unrefElement, useDebounceFn, useElementSize, useIntersectionObserver, useMutationObserver} from '@vueuse/core'
@@ -1054,14 +1057,30 @@ const activeFieldElements: { [id in FieldType]: HTMLElement | null } = reactive(
 	startDate: null,
 })
 
-function setFieldRef(name, e) {
+const dueDatePicker = useTemplateRef<InstanceType<typeof Datepicker>>('dueDatePicker')
+const startDatePicker = useTemplateRef<InstanceType<typeof Datepicker>>('startDatePicker')
+const endDatePicker = useTemplateRef<InstanceType<typeof Datepicker>>('endDatePicker')
+
+function setFieldRef(name: FieldType, e) {
 	activeFieldElements[name] = unrefElement(e)
 }
 
 function setFieldActive(fieldName: keyof typeof activeFields) {
 	activeFields[fieldName] = true
 	nextTick(() => {
-		const el = activeFieldElements[fieldName]
+		let datepicker: InstanceType<typeof Datepicker> | null = null
+		switch (fieldName) {
+			case 'dueDate':
+				datepicker = dueDatePicker.value
+				break
+			case 'startDate':
+				datepicker = startDatePicker.value
+				break
+			case 'endDate':
+				datepicker = endDatePicker.value
+				break
+		}
+		const el: HTMLElement | null = datepicker?.$el ?? activeFieldElements[fieldName]
 
 		if (!el) {
 			return
@@ -1069,8 +1088,10 @@ function setFieldActive(fieldName: keyof typeof activeFields) {
 
 		el.focus()
 
-		// scroll the field to the center of the screen if not in viewport already
-		scrollIntoView(el)
+		// Finish scrolling before the datepicker sheet locks the page.
+		scrollIntoView(el, datepicker ? 'instant' : 'smooth')
+
+		datepicker?.open()
 	})
 }
 
@@ -1436,6 +1457,13 @@ h2 .button {
 	}
 }
 
+// keep the title clear of the modal's fixed close button
+.is-modal .heading {
+	@media screen and (min-width: $tablet) and (max-width: $desktop) {
+		padding-inline-end: 3.5rem;
+	}
+}
+
 .is-modal .action-buttons {
 	// we need same top margin for the modal close button 
 	@media screen and (min-width: $tablet) {
@@ -1503,5 +1531,12 @@ h2 .button {
 .modal-content .scroll-to-comments-button {
 	inset-block-end: .75rem;
 	inset-inline-end: 1rem;
+}
+
+// the task card spans the full width here, so the modal's white close button sits on it instead of the scrim
+@media screen and (min-width: $tablet) and (max-width: $desktop) {
+	.modal-dialog:has(.task-view-container.is-modal) .modal-container > .close {
+		color: var(--text);
+	}
 }
 </style>

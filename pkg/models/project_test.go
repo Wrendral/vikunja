@@ -648,6 +648,33 @@ func TestProject_Delete(t *testing.T) {
 		db.AssertMissing(t, "tasks", map[string]interface{}{
 			"project_id": 1,
 		})
+		db.AssertMissing(t, "project_task_counters", map[string]interface{}{
+			"project_id": 1,
+		})
+	})
+	t.Run("removes aliases owned by or targeting the project", func(t *testing.T) {
+		db.LoadAndAssertFixtures(t)
+		s := db.NewSession()
+		defer s.Close()
+
+		_, err := s.Insert(
+			&TaskIndexAlias{ProjectID: 1, Index: 99, TaskID: 13},
+			&TaskIndexAlias{ProjectID: 2, Index: 99, TaskID: 1},
+			&TaskIndexAlias{ProjectID: 2, Index: 98, TaskID: 13},
+		)
+		require.NoError(t, err)
+
+		require.NoError(t, (&Project{ID: 1}).Delete(s, &user.User{ID: 1}))
+		require.NoError(t, s.Commit())
+
+		db.AssertMissing(t, "project_task_counters", map[string]interface{}{"project_id": 1})
+		db.AssertMissing(t, "task_index_aliases", map[string]interface{}{"project_id": 1})
+		db.AssertMissing(t, "task_index_aliases", map[string]interface{}{"task_id": 1})
+		db.AssertExists(t, "task_index_aliases", map[string]interface{}{
+			"project_id": 2,
+			"index":      98,
+			"task_id":    13,
+		}, false)
 	})
 	t.Run("with background", func(t *testing.T) {
 		db.LoadAndAssertFixtures(t)
@@ -1015,4 +1042,74 @@ func TestCheckIsArchived(t *testing.T) {
 		err := p.CheckIsArchived(s)
 		require.NoError(t, err)
 	})
+}
+
+func TestGetProjectSimpleByIDMemo(t *testing.T) {
+	db.LoadAndAssertFixtures(t)
+	t.Cleanup(func() { db.LoadAndAssertFixtures(t) })
+	s := db.NewSession()
+	defer s.Close()
+	require.NoError(t, s.Commit())
+
+	first, err := GetProjectSimpleByID(s, 1)
+	require.NoError(t, err)
+	assert.Equal(t, "Test1", first.Title)
+	first.Title = "mutated"
+
+	child, err := GetProjectSimpleByID(s, 12)
+	require.NoError(t, err)
+	require.NotNil(t, child.ParentProjectID)
+	assert.Equal(t, int64(27), *child.ParentProjectID)
+	*child.ParentProjectID = 999
+
+	childAgain, err := GetProjectSimpleByID(s, 12)
+	require.NoError(t, err)
+	require.NotNil(t, childAgain.ParentProjectID)
+	assert.Equal(t, int64(27), *childAgain.ParentProjectID)
+
+	updateTitleBehindTheBack(t, 1, &Project{Title: behindTheBackTitle})
+
+	second, err := GetProjectSimpleByID(s, 1)
+	require.NoError(t, err)
+	assert.Equal(t, "Test1", second.Title, "a re-read that reaches the db would see the other session's write")
+
+	_, err = s.ID(2).Cols("title").Update(&Project{Title: "any write invalidates the memo"})
+	require.NoError(t, err)
+
+	afterWrite, err := GetProjectSimpleByID(s, 1)
+	require.NoError(t, err)
+	assert.Equal(t, behindTheBackTitle, afterWrite.Title)
+}
+
+func TestGetProjectsMapByIDsMemo(t *testing.T) {
+	db.LoadAndAssertFixtures(t)
+	t.Cleanup(func() { db.LoadAndAssertFixtures(t) })
+	s := db.NewSession()
+	defer s.Close()
+	require.NoError(t, s.Commit())
+
+	single, err := GetProjectSimpleByID(s, 1)
+	require.NoError(t, err)
+	assert.Equal(t, "Test1", single.Title)
+
+	updateTitleBehindTheBack(t, 1, &Project{Title: behindTheBackTitle})
+
+	projects, err := GetProjectsMapByIDs(s, []int64{1, 2})
+	require.NoError(t, err)
+	require.Len(t, projects, 2)
+	assert.Equal(t, "Test1", projects[1].Title, "id 1 is memoized, only id 2 may reach the db")
+	assert.Equal(t, "Test2", projects[2].Title)
+
+	projects[1].Title = "mutated"
+
+	again, err := GetProjectSimpleByID(s, 1)
+	require.NoError(t, err)
+	assert.Equal(t, "Test1", again.Title)
+
+	_, err = s.ID(2).Cols("title").Update(&Project{Title: "any write invalidates the memo"})
+	require.NoError(t, err)
+
+	afterWrite, err := GetProjectsMapByIDs(s, []int64{1})
+	require.NoError(t, err)
+	assert.Equal(t, behindTheBackTitle, afterWrite[1].Title)
 }

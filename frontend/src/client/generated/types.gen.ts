@@ -410,6 +410,33 @@ export type ColumnMapping = {
     column_name?: string;
 };
 
+export type CreateInviteLinkBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * Null means no expiry.
+     */
+    expires_at?: string | null;
+    /**
+     * Null allows unlimited registrations.
+     */
+    max_uses?: number | null;
+    /**
+     * Name shown to admins and invitees.
+     */
+    name?: string;
+    /**
+     * Activate accounts without confirming email.
+     */
+    skip_email_confirm?: boolean;
+    /**
+     * Local teams the invitees will join.
+     */
+    team_ids?: Array<number> | null;
+};
+
 export type CreateUserBody = {
     /**
      * A URL to the JSON Schema for this object.
@@ -617,6 +644,28 @@ export type Info = {
     licensed?: boolean;
     max_users?: number;
     validated_at?: string;
+};
+
+export type InviteLinkCheckBody = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * Secret invitation token.
+     */
+    token?: string;
+};
+
+export type InviteLinkTeam = {
+    /**
+     * Numeric team ID.
+     */
+    id?: number;
+    /**
+     * Team name.
+     */
+    name?: string;
 };
 
 export type JsonPatchOp = {
@@ -1121,6 +1170,18 @@ export type PaginatedImage = {
     total_pages?: number;
 };
 
+export type PaginatedInviteLinkTeam = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    items?: Array<InviteLinkTeam> | null;
+    page?: number;
+    per_page?: number;
+    total?: number;
+    total_pages?: number;
+};
+
 export type PaginatedLabelWithTaskId = {
     /**
      * A URL to the JSON Schema for this object.
@@ -1271,6 +1332,18 @@ export type PaginatedUser = {
      */
     readonly $schema?: string;
     items?: Array<User> | null;
+    page?: number;
+    per_page?: number;
+    total?: number;
+    total_pages?: number;
+};
+
+export type PaginatedUserInviteLink = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    items?: Array<UserInviteLink> | null;
     page?: number;
     per_page?: number;
     total?: number;
@@ -1689,6 +1762,25 @@ export type ProviderStatus = {
     key?: string;
 };
 
+export type PublicInviteLink = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    /**
+     * Name of this invitation.
+     */
+    name?: string;
+    /**
+     * Whether the link activates accounts without email confirmation.
+     */
+    skip_email_confirm?: boolean;
+    /**
+     * Teams the new account will join.
+     */
+    teams?: Array<InviteLinkTeam> | null;
+};
+
 export type Reaction = {
     /**
      * A URL to the JSON Schema for this object.
@@ -1706,6 +1798,24 @@ export type Reaction = {
      * The reaction itself: any UTF text up to 20 characters, e.g. an emoji.
      */
     value?: string;
+};
+
+export type RegisterUserRequest = {
+    /**
+     * A URL to the JSON Schema for this object.
+     */
+    readonly $schema?: string;
+    email?: string;
+    /**
+     * Invitation token. Allows registration when public signup is disabled and joins the invited teams.
+     */
+    invite_token?: string;
+    /**
+     * The language of the new user as an IETF BCP 47 code (e.g. en, de-DE).
+     */
+    language?: string;
+    password?: string;
+    username?: string;
 };
 
 export type RenewTokenBodyBody = {
@@ -3056,18 +3166,55 @@ export type UserInfoBody = {
     username?: string;
 };
 
-export type UserRegister = {
+export type UserInviteLink = {
     /**
      * A URL to the JSON Schema for this object.
      */
     readonly $schema?: string;
-    email?: string;
     /**
-     * The language of the new user as an IETF BCP 47 code (e.g. en, de-DE).
+     * Creation timestamp.
      */
-    language?: string;
-    password?: string;
-    username?: string;
+    created?: string;
+    /**
+     * The admin who created this link; null if their account was deleted.
+     */
+    readonly created_by?: User;
+    /**
+     * Null means no expiry.
+     */
+    expires_at?: string | null;
+    /**
+     * Numeric link ID.
+     */
+    id?: number;
+    /**
+     * Null allows unlimited registrations.
+     */
+    max_uses?: number | null;
+    /**
+     * Name shown to admins and invitees.
+     */
+    name?: string;
+    /**
+     * Activate invitees without confirming their email.
+     */
+    skip_email_confirm?: boolean;
+    /**
+     * Teams the invitee will join.
+     */
+    teams?: Array<InviteLinkTeam> | null;
+    /**
+     * Secret token, returned only on creation.
+     */
+    token?: string;
+    /**
+     * Last update timestamp.
+     */
+    updated?: string;
+    /**
+     * Completed registrations.
+     */
+    uses?: number;
 };
 
 export type UserWithPermission = {
@@ -3472,6 +3619,29 @@ export type CallbackWritable = {
     totp_passcode?: string;
 };
 
+export type CreateInviteLinkBodyWritable = {
+    /**
+     * Null means no expiry.
+     */
+    expires_at?: string | null;
+    /**
+     * Null allows unlimited registrations.
+     */
+    max_uses?: number | null;
+    /**
+     * Name shown to admins and invitees.
+     */
+    name?: string;
+    /**
+     * Activate accounts without confirming email.
+     */
+    skip_email_confirm?: boolean;
+    /**
+     * Local teams the invitees will join.
+     */
+    team_ids?: Array<number> | null;
+};
+
 export type CreateUserBodyWritable = {
     email?: string;
     /**
@@ -3564,6 +3734,13 @@ export type ImageWritable = {
      * The full-size URL of the image.
      */
     url?: string;
+};
+
+export type InviteLinkCheckBodyWritable = {
+    /**
+     * Secret invitation token.
+     */
+    token?: string;
 };
 
 export type LabelWritable = {
@@ -3756,6 +3933,14 @@ export type PaginatedImageWritable = {
     total_pages?: number;
 };
 
+export type PaginatedInviteLinkTeamWritable = {
+    items?: Array<InviteLinkTeam> | null;
+    page?: number;
+    per_page?: number;
+    total?: number;
+    total_pages?: number;
+};
+
 export type PaginatedLabelWithTaskIdWritable = {
     items?: Array<LabelWithTaskIdWritable> | null;
     page?: number;
@@ -3854,6 +4039,14 @@ export type PaginatedTokenWritable = {
 
 export type PaginatedUserWritable = {
     items?: Array<UserWritable> | null;
+    page?: number;
+    per_page?: number;
+    total?: number;
+    total_pages?: number;
+};
+
+export type PaginatedUserInviteLinkWritable = {
+    items?: Array<UserInviteLinkWritable> | null;
     page?: number;
     per_page?: number;
     total?: number;
@@ -4058,11 +4251,40 @@ export type ProjectViewReadBodyWritable = {
     view_kind?: 'list' | 'gantt' | 'table' | 'kanban';
 };
 
+export type PublicInviteLinkWritable = {
+    /**
+     * Name of this invitation.
+     */
+    name?: string;
+    /**
+     * Whether the link activates accounts without email confirmation.
+     */
+    skip_email_confirm?: boolean;
+    /**
+     * Teams the new account will join.
+     */
+    teams?: Array<InviteLinkTeam> | null;
+};
+
 export type ReactionWritable = {
     /**
      * The reaction itself: any UTF text up to 20 characters, e.g. an emoji.
      */
     value?: string;
+};
+
+export type RegisterUserRequestWritable = {
+    email?: string;
+    /**
+     * Invitation token. Allows registration when public signup is disabled and joins the invited teams.
+     */
+    invite_token?: string;
+    /**
+     * The language of the new user as an IETF BCP 47 code (e.g. en, de-DE).
+     */
+    language?: string;
+    password?: string;
+    username?: string;
 };
 
 export type SavedFilterWritable = {
@@ -4546,14 +4768,47 @@ export type UserInfoBodyWritable = {
     username?: string;
 };
 
-export type UserRegisterWritable = {
-    email?: string;
+export type UserInviteLinkWritable = {
     /**
-     * The language of the new user as an IETF BCP 47 code (e.g. en, de-DE).
+     * Creation timestamp.
      */
-    language?: string;
-    password?: string;
-    username?: string;
+    created?: string;
+    /**
+     * Null means no expiry.
+     */
+    expires_at?: string | null;
+    /**
+     * Numeric link ID.
+     */
+    id?: number;
+    /**
+     * Null allows unlimited registrations.
+     */
+    max_uses?: number | null;
+    /**
+     * Name shown to admins and invitees.
+     */
+    name?: string;
+    /**
+     * Activate invitees without confirming their email.
+     */
+    skip_email_confirm?: boolean;
+    /**
+     * Teams the invitee will join.
+     */
+    teams?: Array<InviteLinkTeam> | null;
+    /**
+     * Secret token, returned only on creation.
+     */
+    token?: string;
+    /**
+     * Last update timestamp.
+     */
+    updated?: string;
+    /**
+     * Completed registrations.
+     */
+    uses?: number;
 };
 
 export type UserWithPermissionWritable = {
@@ -4712,6 +4967,99 @@ export type WebhookWritable = {
     target_url?: string;
 };
 
+export type AdminInviteLinksListData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * 1-based page number.
+         */
+        page?: number;
+        /**
+         * Items per page (max 1000).
+         */
+        per_page?: number;
+        /**
+         * Search query; filters the list to items matching this string.
+         */
+        q?: string;
+    };
+    url: '/admin/invite-links';
+};
+
+export type AdminInviteLinksListErrors = {
+    /**
+     * Error
+     */
+    default: VikunjaErrorModel;
+};
+
+export type AdminInviteLinksListError = AdminInviteLinksListErrors[keyof AdminInviteLinksListErrors];
+
+export type AdminInviteLinksListResponses = {
+    /**
+     * OK
+     */
+    200: PaginatedUserInviteLink;
+};
+
+export type AdminInviteLinksListResponse = AdminInviteLinksListResponses[keyof AdminInviteLinksListResponses];
+
+export type AdminInviteLinksCreateData = {
+    body: CreateInviteLinkBodyWritable;
+    path?: never;
+    query?: never;
+    url: '/admin/invite-links';
+};
+
+export type AdminInviteLinksCreateErrors = {
+    /**
+     * Error
+     */
+    default: VikunjaErrorModel;
+};
+
+export type AdminInviteLinksCreateError = AdminInviteLinksCreateErrors[keyof AdminInviteLinksCreateErrors];
+
+export type AdminInviteLinksCreateResponses = {
+    /**
+     * Created
+     */
+    201: UserInviteLink;
+};
+
+export type AdminInviteLinksCreateResponse = AdminInviteLinksCreateResponses[keyof AdminInviteLinksCreateResponses];
+
+export type AdminInviteLinksDeleteData = {
+    body?: never;
+    path: {
+        /**
+         * Numeric invite link ID.
+         */
+        id: number;
+    };
+    query?: never;
+    url: '/admin/invite-links/{id}';
+};
+
+export type AdminInviteLinksDeleteErrors = {
+    /**
+     * Error
+     */
+    default: VikunjaErrorModel;
+};
+
+export type AdminInviteLinksDeleteError = AdminInviteLinksDeleteErrors[keyof AdminInviteLinksDeleteErrors];
+
+export type AdminInviteLinksDeleteResponses = {
+    /**
+     * No Content
+     */
+    204: void;
+};
+
+export type AdminInviteLinksDeleteResponse = AdminInviteLinksDeleteResponses[keyof AdminInviteLinksDeleteResponses];
+
 export type AdminOverviewData = {
     body?: never;
     path?: never;
@@ -4804,6 +5152,44 @@ export type AdminProjectsPatchOwnerResponses = {
 };
 
 export type AdminProjectsPatchOwnerResponse = AdminProjectsPatchOwnerResponses[keyof AdminProjectsPatchOwnerResponses];
+
+export type AdminTeamsListData = {
+    body?: never;
+    path?: never;
+    query?: {
+        /**
+         * 1-based page number.
+         */
+        page?: number;
+        /**
+         * Items per page (max 1000).
+         */
+        per_page?: number;
+        /**
+         * Search query; filters the list to items matching this string.
+         */
+        q?: string;
+    };
+    url: '/admin/teams';
+};
+
+export type AdminTeamsListErrors = {
+    /**
+     * Error
+     */
+    default: VikunjaErrorModel;
+};
+
+export type AdminTeamsListError = AdminTeamsListErrors[keyof AdminTeamsListErrors];
+
+export type AdminTeamsListResponses = {
+    /**
+     * OK
+     */
+    200: PaginatedInviteLinkTeam;
+};
+
+export type AdminTeamsListResponse = AdminTeamsListResponses[keyof AdminTeamsListResponses];
 
 export type AdminUsersListData = {
     body?: never;
@@ -5400,6 +5786,31 @@ export type InfoResponses = {
 };
 
 export type InfoResponse = InfoResponses[keyof InfoResponses];
+
+export type InviteLinksCheckData = {
+    body: InviteLinkCheckBodyWritable;
+    path?: never;
+    query?: never;
+    url: '/invite-links/check';
+};
+
+export type InviteLinksCheckErrors = {
+    /**
+     * Error
+     */
+    default: VikunjaErrorModel;
+};
+
+export type InviteLinksCheckError = InviteLinksCheckErrors[keyof InviteLinksCheckErrors];
+
+export type InviteLinksCheckResponses = {
+    /**
+     * OK
+     */
+    200: PublicInviteLink;
+};
+
+export type InviteLinksCheckResponse = InviteLinksCheckResponses[keyof InviteLinksCheckResponses];
 
 export type LabelsListData = {
     body?: never;
@@ -8047,7 +8458,7 @@ export type WebhooksUpdateResponses = {
 export type WebhooksUpdateResponse = WebhooksUpdateResponses[keyof WebhooksUpdateResponses];
 
 export type AuthRegisterData = {
-    body: UserRegisterWritable;
+    body: RegisterUserRequestWritable;
     path?: never;
     query?: never;
     url: '/register';
