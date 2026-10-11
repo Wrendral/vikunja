@@ -5,5 +5,5 @@ export const INCLUDE_SUBPROJECTS_QUERY_PARAM = 'include_subprojects'
 
 export function useIncludeSubprojects() {
 	const authStore = useAuthStore()
-	return computed(() => authStore.settings.frontend_settings.include_subprojects === true)
+	return computed(() => authStore.settings.frontend_settings?.include_subprojects === true)
 }

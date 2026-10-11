@@ -77,7 +77,7 @@ export function kanbanQuery(project: number, view: number, params: TaskFilterPar
 		queryFn: async ({signal}): Promise<BoardData> => {
 			const {data} = await projectViewBucketsTasksList({
 				path: {project, view},
-				query: {...params, ...BUCKET_TASK_PARAMS, include_subprojects: false},
+				query: {...params, ...BUCKET_TASK_PARAMS, ...(params.include_subprojects ? {include_subprojects: false} : {})},
 				signal,
 			})
 			const buckets = (data.items ?? []).map(normalizeBucket)
