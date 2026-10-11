@@ -39,8 +39,8 @@ const router = createRouter({
 
 		// Otherwise just scroll to the top
 		return {
-			'inset-inline-start': 0,
-			'inset-block-start': 0,
+			left: 0,
+			top: 0,
 		}
 	},
 	routes: [
@@ -111,10 +111,15 @@ const router = createRouter({
 					component: () => import('@/views/user/settings/Caldav.vue'),
 					beforeEnter: async () => {
 						const {useConfigStore} = await import('@/stores/config')
-						if (!useConfigStore().caldavEnabled) {
+						if (!useConfigStore().caldav_enabled) {
 							return {name: 'user.settings.general'}
 						}
 					},
+				},
+				{
+					path: '/user/settings/mcp',
+					name: 'user.settings.mcp',
+					component: () => import('@/views/user/settings/Mcp.vue'),
 				},
 				{
 					path: '/user/settings/data-export',
@@ -152,7 +157,7 @@ const router = createRouter({
 					component: () => import('@/views/user/settings/TOTP.vue'),
 					beforeEnter: async () => {
 						const {useConfigStore} = await import('@/stores/config')
-						if (!useConfigStore().totpEnabled || !useAuthStore().info?.isLocalUser) {
+						if (!useConfigStore().totp_enabled || !useAuthStore().info?.is_local_user) {
 							return {name: 'user.settings.general'}
 						}
 					},
@@ -263,7 +268,7 @@ const router = createRouter({
 			},
 		},
 		{
-			path: '/projects/:projectId/settings/edit',
+			path: '/projects/:projectId(\\d+)/settings/edit',
 			name: 'project.settings.edit',
 			component: () => import('@/views/project/settings/ProjectSettingsEdit.vue'),
 			props: route => ({ projectId: Number(route.params.projectId as string) }),
@@ -304,7 +309,7 @@ const router = createRouter({
 			},
 		},
 		{
-			path: '/projects/:projectId/settings/delete',
+			path: '/projects/:projectId(\\d+)/settings/delete',
 			name: 'project.settings.delete',
 			component: () => import('@/views/project/settings/ProjectSettingsDelete.vue'),
 			meta: {
@@ -329,7 +334,8 @@ const router = createRouter({
 			props: route => ({ projectId: Number(route.params.projectId as string) }),
 		},
 		{
-			path: '/projects/:projectId/settings/edit',
+			// Saved-filter pseudo-projects use IDs <= -2; -1 is the Favorites pseudo-project.
+			path: '/projects/:projectId(-[2-9]\\d*|-1\\d+)/settings/edit',
 			name: 'filter.settings.edit',
 			component: () => import('@/views/filters/FilterEdit.vue'),
 			meta: {
@@ -338,7 +344,7 @@ const router = createRouter({
 			props: route => ({ projectId: Number(route.params.projectId as string) }),
 		},
 		{
-			path: '/projects/:projectId/settings/delete',
+			path: '/projects/:projectId(-[2-9]\\d*|-1\\d+)/settings/delete',
 			name: 'filter.settings.delete',
 			component: () => import('@/views/filters/FilterDelete.vue'),
 			meta: {
@@ -482,7 +488,13 @@ const router = createRouter({
 	],
 })
 
-export async function getAuthForRoute(to: RouteLocation, authStore) {
+export async function getAuthForRoute(to: RouteLocation, authStore: {
+	authUser: boolean,
+	authLinkShare: boolean,
+	info: {pending_email?: string} | null,
+	verifyEmail: (token: string) => Promise<unknown>,
+	refreshUserInfo: () => Promise<unknown>,
+}) {
 	// vue-router already decoded to.hash once, so slicing off the prefix yields the original
 	// fullPath (e.g. /oauth/authorize?...) losslessly — no extra decodeURIComponent needed.
 	const redirectDest = to.name === 'user.login' && to.hash.startsWith(REDIRECT_HASH_PREFIX)
@@ -496,15 +508,15 @@ export async function getAuthForRoute(to: RouteLocation, authStore) {
 		try {
 			// info may predate a change requested in another session; re-read before judging.
 			await authStore.refreshUserInfo()
-			const hadPending = !!authStore.info?.pendingEmail
+			const hadPending = !!authStore.info?.pending_email
 			await authStore.verifyEmail(confirmToken)
 			await authStore.refreshUserInfo()
-			if (hadPending && !authStore.info?.pendingEmail) {
+			if (hadPending && !authStore.info?.pending_email) {
 				success({message: i18n.global.t('user.settings.updateEmailConfirmed')})
 				return {name: 'user.settings.email-update'}
 			}
 		} catch (e) {
-			// verifyEmail rethrows with the axios error as cause; the i18n code lookup needs the original
+			// Keep the original API error code for translation.
 			error((e as {cause?: unknown})?.cause ?? e)
 		}
 		return {name: 'home'}
@@ -595,10 +607,10 @@ router.beforeEach(async (to, from) => {
 		const configStore = useConfigStore()
 		const featureOn = configStore.isProFeatureEnabled(PRO_FEATURE.ADMIN_PANEL)
 		// isAdmin comes from /user, not the JWT; force-fetch in case checkAuth() was debounced.
-		if (authStore.info?.isAdmin === undefined) {
+		if (authStore.info?.is_admin === undefined) {
 			await authStore.refreshUserInfo()
 		}
-		const isAdmin = authStore.info?.isAdmin === true
+		const isAdmin = authStore.info?.is_admin === true
 		if (!featureOn || !isAdmin) {
 			return {name: 'not-found'}
 		}

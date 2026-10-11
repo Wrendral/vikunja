@@ -19,6 +19,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 
@@ -42,7 +43,6 @@ func RegisterListeners() {
 	events.RegisterListener((&TaskDeletedEvent{}).Name(), &SendTaskDeletedNotification{})
 	events.RegisterListener((&ProjectCreatedEvent{}).Name(), &SendProjectCreatedNotification{})
 	events.RegisterListener((&TeamMemberAddedEvent{}).Name(), &SendTeamMemberAddedNotification{})
-	events.RegisterListener((&TeamMemberRemovedEvent{}).Name(), &CleanupTaskAssignmentsAfterTeamRemoval{})
 	events.RegisterListener((&TaskCommentUpdatedEvent{}).Name(), &HandleTaskCommentEditMentions{})
 	events.RegisterListener((&TaskCreatedEvent{}).Name(), &HandleTaskCreateMentions{})
 	events.RegisterListener((&TaskUpdatedEvent{}).Name(), &HandleTaskUpdatedMentions{})
@@ -59,6 +59,7 @@ func RegisterListeners() {
 	events.RegisterListener((&TasksBatchCreatedEvent{}).Name(), &UpdateTasksBatchInSavedFilterViews{})
 	events.RegisterListener((&TaskUpdatedEvent{}).Name(), &UpdateTaskInSavedFilterViews{})
 	events.RegisterListener((&TaskCommentCreatedEvent{}).Name(), &MarkTaskUnreadOnComment{})
+	events.RegisterListener((&user.AccountLockedEvent{}).Name(), &RevokeSessionsOnAccountLock{})
 	if config.WebhooksEnabled.GetBool() {
 		RegisterEventForWebhook(&TaskCreatedEvent{})
 		RegisterEventForWebhook(&TaskUpdatedEvent{})
@@ -368,6 +369,17 @@ func registerEventsForAuditLogging() {
 			Action: audit.ActionAdminUserStatusChanged,
 			Actor:  auditActorFromUser(e.Doer),
 			Target: audit.UserTarget(e.User.ID),
+			Metadata: map[string]any{
+				"old_status": e.OldStatus,
+				"new_status": e.NewStatus,
+			},
+		}
+	})
+	audit.RegisterEventForAudit(func(e *BotStatusChangedEvent) *audit.Entry {
+		return &audit.Entry{
+			Action: audit.ActionBotStatusChanged,
+			Actor:  auditActorFromUser(e.Doer),
+			Target: audit.UserTarget(e.Bot.ID),
 			Metadata: map[string]any{
 				"old_status": e.OldStatus,
 				"new_status": e.NewStatus,
@@ -1501,6 +1513,74 @@ func reloadEventData(s *xorm.Session, event map[string]interface{}, projectID in
 	return event, doerID, nil
 }
 
+// Skips webhooks whose creator is inactive or can no longer read the project.
+func projectWebhooksForEvent(s *xorm.Session, projectID int64, eventName string) ([]*Webhook, error) {
+	matchingWebhooks := []*Webhook{}
+	if projectID <= 0 {
+		return matchingWebhooks, nil
+	}
+
+	parents, err := GetAllParentProjects(s, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	projectIDs := make([]int64, 0, len(parents)+1)
+	projectIDs = append(projectIDs, projectID)
+	for _, p := range parents {
+		projectIDs = append(projectIDs, p.ID)
+	}
+
+	ws := []*Webhook{}
+	err = s.In("project_id", projectIDs).
+		OrderBy("id ASC").
+		Find(&ws)
+	if err != nil {
+		return nil, err
+	}
+
+	candidates := []*Webhook{}
+	creatorIDs := []int64{}
+	for _, w := range ws {
+		if slices.Contains(w.Events, eventName) {
+			candidates = append(candidates, w)
+			creatorIDs = append(creatorIDs, w.CreatedByID)
+		}
+	}
+	if len(candidates) == 0 {
+		return matchingWebhooks, nil
+	}
+	creators, err := user.GetUsersByIDs(s, creatorIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	project, err := GetProjectSimpleByID(s, projectID)
+	if err != nil && !IsErrProjectDoesNotExist(err) {
+		return nil, err
+	}
+
+	for _, w := range candidates {
+		creator, exists := creators[w.CreatedByID]
+		if !exists || creator.Status != user.StatusActive {
+			continue
+		}
+		// project.deleted fires after the row is gone; nothing left to check against.
+		if project != nil {
+			// Backstop for access lost without an explicit removal, e.g. by moving the project.
+			canRead, _, err := project.CanRead(s, &user.User{ID: w.CreatedByID})
+			if err != nil {
+				return nil, err
+			}
+			if !canRead {
+				continue
+			}
+		}
+		matchingWebhooks = append(matchingWebhooks, w)
+	}
+	return matchingWebhooks, nil
+}
+
 // Handle is executed when the event WebhookListener listens on is fired
 func (wl *WebhookListener) Handle(msg *message.Message) (err error) {
 	var event map[string]interface{}
@@ -1521,36 +1601,9 @@ func (wl *WebhookListener) Handle(msg *message.Message) (err error) {
 		return nil
 	}
 
-	// Look up project-level webhooks
-	matchingWebhooks := []*Webhook{}
-	if projectID > 0 {
-		parents, err := GetAllParentProjects(s, projectID)
-		if err != nil {
-			return err
-		}
-
-		projectIDs := make([]int64, 0, len(parents)+1)
-		projectIDs = append(projectIDs, projectID)
-		for _, p := range parents {
-			projectIDs = append(projectIDs, p.ID)
-		}
-
-		ws := []*Webhook{}
-		err = s.In("project_id", projectIDs).
-			OrderBy("id ASC").
-			Find(&ws)
-		if err != nil {
-			return err
-		}
-
-		for _, w := range ws {
-			for _, e := range w.Events {
-				if e == wl.EventName {
-					matchingWebhooks = append(matchingWebhooks, w)
-					break
-				}
-			}
-		}
+	matchingWebhooks, err := projectWebhooksForEvent(s, projectID, wl.EventName)
+	if err != nil {
+		return err
 	}
 
 	// Look up user-level webhooks for user-directed events
@@ -1635,38 +1688,6 @@ func (wl *WebhookListener) Handle(msg *message.Message) (err error) {
 
 ///////
 // Team Events
-
-// CleanupTaskAssignmentsAfterTeamRemoval represents a listener
-type CleanupTaskAssignmentsAfterTeamRemoval struct{}
-
-// Name defines the name of the listener
-func (l *CleanupTaskAssignmentsAfterTeamRemoval) Name() string {
-	return "task.assignees.cleanup.team_removal"
-}
-
-// Handle cleans up task assignments and subscriptions for members removed from teams
-func (l *CleanupTaskAssignmentsAfterTeamRemoval) Handle(msg *message.Message) (err error) {
-	event := &TeamMemberRemovedEvent{}
-	err = json.Unmarshal(msg.Payload, event)
-	if err != nil {
-		return err
-	}
-
-	s := db.NewSession()
-	defer s.Close()
-
-	if event == nil || event.Team == nil || event.Member == nil {
-		return nil
-	}
-
-	err = cleanupTaskMembersAfterTeamRemoval(s, event.Team.ID, event.Member.ID)
-	if err != nil {
-		_ = s.Rollback()
-		return err
-	}
-
-	return s.Commit()
-}
 
 // SendTeamMemberAddedNotification  represents a listener
 type SendTeamMemberAddedNotification struct {
@@ -1798,4 +1819,36 @@ func (s *MarkTaskUnreadOnComment) Handle(msg *message.Message) (err error) {
 	}
 
 	return sess.Commit()
+}
+
+// RevokeSessionsOnAccountLock deletes all sessions of a locked account.
+type RevokeSessionsOnAccountLock struct {
+}
+
+// Name defines the name for the RevokeSessionsOnAccountLock listener
+func (s *RevokeSessionsOnAccountLock) Name() string {
+	return "user.account.locked.revoke.sessions"
+}
+
+// Handle is executed when the event RevokeSessionsOnAccountLock listens on is fired
+func (s *RevokeSessionsOnAccountLock) Handle(msg *message.Message) (err error) {
+	event := &user.AccountLockedEvent{}
+	err = json.Unmarshal(msg.Payload, event)
+	if err != nil {
+		return err
+	}
+
+	sess := db.NewSession()
+	defer sess.Close()
+	defer events.CleanupPending(sess)
+
+	if err := DeleteAllUserSessions(sess, event.UserID); err != nil {
+		_ = sess.Rollback()
+		return err
+	}
+	if err := sess.Commit(); err != nil {
+		return err
+	}
+	events.DispatchPending(msg.Context(), sess)
+	return nil
 }

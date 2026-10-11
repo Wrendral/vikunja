@@ -71,7 +71,7 @@
 import {computed, toRefs} from 'vue'
 import type {RouteLocationNormalized} from 'vue-router'
 
-import {useBaseStore} from '@/stores/base'
+import {useCurrentProject} from '@/composables/useCurrentProject'
 
 import DateRangeInput from '@/components/input/DateRangeInput.vue'
 import ProjectWrapper from '@/components/project/ProjectWrapper.vue'
@@ -81,25 +81,28 @@ import FormField from '@/components/input/FormField.vue'
 
 import GanttChart from '@/components/gantt/GanttChart.vue'
 import {useGanttFilters} from '../../../views/project/helpers/useGanttFilters'
+import {useIncludeSubprojects} from '@/composables/useIncludeSubprojects'
 import {PERMISSIONS} from '@/constants/permissions'
 
 import type {DateISO} from '@/types/DateISO'
-import type {IProject} from '@/modelTypes/IProject'
-import type {ITask} from '@/modelTypes/ITask'
-import type {IProjectView} from '@/modelTypes/IProjectView'
+import type {Task as ITask} from '@/client/generated'
 
 const props = defineProps<{
 	isLoadingProject: boolean,
-	projectId: IProject['id']
+	projectId: number,
 	route: RouteLocationNormalized
-	viewId: IProjectView['id']
+	viewId: number
 }>()
 
 
-const baseStore = useBaseStore()
-const canWrite = computed(() => baseStore.currentProject?.maxPermission > PERMISSIONS.READ)
+const {currentProject} = useCurrentProject()
+const canWrite = computed(() =>
+	typeof currentProject.value?.max_permission === 'number' &&
+	currentProject.value.max_permission > PERMISSIONS.READ,
+)
 
 const {route, projectId, viewId} = toRefs(props)
+const includeSubprojects = useIncludeSubprojects()
 const {
 	filters,
 	hasDefaultFilters,
@@ -108,7 +111,7 @@ const {
 	isLoading,
 	addTask,
 	updateTask,
-} = useGanttFilters(route, projectId, viewId)
+} = useGanttFilters(route, projectId, viewId, includeSubprojects)
 
 const DEFAULT_DATE_RANGE_DAYS = 7
 
@@ -123,9 +126,9 @@ const defaultTaskEndDate: DateISO = new Date(new Date(
 async function addGanttTask(title: ITask['title']) {
 	return await addTask({
 		title,
-		projectId: filters.value.projectId,
-		startDate: defaultTaskStartDate,
-		endDate: defaultTaskEndDate,
+		project_id: filters.value.projectId,
+		start_date: defaultTaskStartDate,
+		end_date: defaultTaskEndDate,
 	})
 }
 

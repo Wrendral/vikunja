@@ -33,17 +33,15 @@
 		</template>
 		<template #searchResult="{option}">
 			<span
-				v-if="typeof option === 'string'"
-				class="tag search-result"
-			>
-				<span>{{ option }}</span>
-			</span>
-			<span
-				v-else
 				:style="getLabelStyles(option)"
 				class="tag search-result"
 			>
 				<span>{{ option.title }}</span>
+			</span>
+		</template>
+		<template #createOption="{query: newLabelTitle}">
+			<span class="tag search-result">
+				<span>{{ newLabelTitle }}</span>
 			</span>
 		</template>
 	</Multiselect>
@@ -59,7 +57,7 @@ import BaseButton from '@/components/base/BaseButton.vue'
 import Multiselect from '@/components/input/Multiselect.vue'
 import type {Label} from '@/client/generated'
 import {useCreateLabelMutation} from '@/client/queries/labels'
-import {useTaskStore} from '@/stores/tasks'
+import {useAddTaskLabelMutation, useRemoveTaskLabelMutation} from '@/client/queries/taskMutations'
 import {getRandomColorHex} from '@/helpers/color/randomColor'
 import {useLabelStyles} from '@/composables/useLabelStyles'
 import {useLabels} from '@/composables/useLabels'
@@ -97,13 +95,17 @@ watch(
 	},
 )
 
-const taskStore = useTaskStore()
+const addLabelMutation = useAddTaskLabelMutation()
+const removeLabelMutation = useRemoveTaskLabelMutation()
 const {filterLabelsByQuery, isPending} = useLabels()
 const createLabelMutation = useCreateLabelMutation()
 const {getLabelStyles} = useLabelStyles()
 
 const foundLabels = computed(() => filterLabelsByQuery(labels.value, query.value))
-const loading = computed(() => isPending.value || createLabelMutation.isPending.value || taskStore.isLoading)
+const loading = computed(() => isPending.value
+	|| createLabelMutation.isPending.value
+	|| addLabelMutation.isPending.value
+	|| removeLabelMutation.isPending.value)
 
 function findLabel(newQuery: string) {
 	query.value = newQuery
@@ -115,8 +117,8 @@ async function addLabel(label: Label, showNotification = true) {
 		return
 	}
 
-	await taskStore.addLabel({label, taskId: props.taskId})
-	emit('update:modelValue', labels.value)
+	await addLabelMutation.mutateAsync({label: {...label, id: label.id!}, taskId: props.taskId})
+	labels.value = Array.from(new Map(labels.value.map(label => [label.id, label])).values())
 	if (showNotification) {
 		success({message: t('task.label.addSuccess')})
 	}
@@ -124,7 +126,7 @@ async function addLabel(label: Label, showNotification = true) {
 
 async function removeLabel(label: Label) {
 	if (props.taskId !== 0) {
-		await taskStore.removeLabel({label, taskId: props.taskId})
+		await removeLabelMutation.mutateAsync({label: {...label, id: label.id!}, taskId: props.taskId})
 	}
 
 	const idx = labels.value.findIndex(l => l.id === label.id)
@@ -145,7 +147,6 @@ async function createAndAddLabel(title: string) {
 		hex_color: getRandomColorHex(),
 	})
 	await addLabel(newLabel, false)
-	labels.value.push(newLabel)
 	success({message: t('task.label.addCreateSuccess')})
 }
 </script>

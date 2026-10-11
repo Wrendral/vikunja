@@ -3,21 +3,17 @@ import {createPinia, setActivePinia} from 'pinia'
 import {nextTick, ref} from 'vue'
 import {Editor} from '@tiptap/core'
 import {createEditorExtensions, type EditorExtensionDeps} from './editorExtensions'
-import {clearAttachmentBlobCache} from '@/helpers/attachments'
+import {queryClient} from '@/client/queryClient'
+import {attachmentKeys} from '@/client/queries/attachments'
 
-const {getBlobUrl} = vi.hoisted(() => ({getBlobUrl: vi.fn(async () => 'blob:real-attachment')}))
+const {getBlobUrl} = vi.hoisted(() => ({getBlobUrl: vi.fn(async () => ({data: new Blob(['bytes'])}))}))
 
-vi.mock('@/services/attachment', async importOriginal => ({
-	...await importOriginal<typeof import('@/services/attachment')>(),
-	default: class {
-		getBlobUrl = getBlobUrl
-	},
-}))
+vi.mock('@/client/generated', () => ({taskAttachmentsDownload: getBlobUrl}))
 
-const API_URL = 'http://localhost:3456/api/v1'
+const API_URL = 'http://localhost:3456'
 window.API_URL = API_URL
 
-const ATTACHMENT_URL = `${API_URL}/tasks/5/attachments/9`
+const ATTACHMENT_URL = `${API_URL}/api/v2/tasks/5/attachments/9`
 
 function createEditor(content: string) {
 	const holder = document.createElement('div')
@@ -52,8 +48,10 @@ async function settle() {
 }
 
 beforeEach(() => {
+	window.API_URL = API_URL
+	URL.createObjectURL = vi.fn(blob => (blob as Blob & {testUrl?: string}).testUrl ?? 'blob:real-attachment')
 	setActivePinia(createPinia())
-	clearAttachmentBlobCache()
+	queryClient.removeQueries({queryKey: attachmentKeys.blobs})
 	getBlobUrl.mockClear()
 })
 
@@ -93,8 +91,29 @@ describe('CustomImage attachment id', () => {
 		expect(img.src).toBe('blob:real-attachment')
 	})
 
+	it.each([
+		`${API_URL}/api/v1/tasks/5/attachments/9`,
+		`${API_URL}/tasks/5/attachments/9`,
+	])('resolves the older stored src %s', async src => {
+		const {editor} = createEditor(`<p><img src="${src}"></p>`)
+		await settle()
+
+		const img = editor.view.dom.querySelector('img')!
+		expect(img.id).toBe('tiptap-image-5-9')
+		expect(img.src).toBe('blob:real-attachment')
+	})
+
+	it('leaves an image on another host alone', async () => {
+		const {editor} = createEditor('<p><img src="https://attacker.example/tasks/5/attachments/9"></p>')
+		await settle()
+
+		const img = editor.view.dom.querySelector('img')!
+		expect(img.src).toBe('https://attacker.example/tasks/5/attachments/9')
+		expect(getBlobUrl).not.toHaveBeenCalled()
+	})
+
 	it('does not let a planted id hijack another image\'s blob url', async () => {
-		const stored = `<p><img src="https://attacker.example/x.png" id="tiptap-image-5-9">` +
+		const stored = '<p><img src="https://attacker.example/x.png" id="tiptap-image-5-9">' +
 			`<img src="#" data-src="${ATTACHMENT_URL}" id="tiptap-image-5-9"></p>`
 		const {editor} = createEditor(stored)
 		await settle()

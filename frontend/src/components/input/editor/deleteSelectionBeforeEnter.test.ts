@@ -1,4 +1,4 @@
-import {describe, it, expect, afterEach, beforeEach, vi} from 'vitest'
+import {describe, it, expect, afterEach, beforeEach} from 'vitest'
 import {createPinia, setActivePinia} from 'pinia'
 import {ref} from 'vue'
 import {Editor} from '@tiptap/core'
@@ -6,7 +6,7 @@ import {TextSelection} from '@tiptap/pm/state'
 
 import {createEditorExtensions, type EditorExtensionDeps} from './editorExtensions'
 
-window.API_URL = 'http://localhost:3456/api/v1'
+window.API_URL = 'http://localhost:3456'
 
 function createEditor(content: string) {
 	const holder = document.createElement('div')
@@ -23,8 +23,6 @@ function createEditor(content: string) {
 		getEditor: () => editor,
 		uploadCallback: undefined,
 		uploadAndInsertFiles: () => {},
-		loadedAttachments: ref({}),
-		attachmentService: {getBlobUrl: vi.fn()} as never,
 	}
 
 	editor = new Editor({element: holder, extensions: createEditorExtensions(deps), content})

@@ -36,7 +36,7 @@
 			@keydown.enter.prevent.stop="!$event.isComposing && ($event.target as HTMLInputElement).blur()"
 			@keydown.esc.prevent.stop="!$event.isComposing && cancel($event.target as HTMLInputElement)"
 		>
-			{{ task.title.trim() }}
+			{{ (task.title ?? '').trim() }}
 		</h1>
 		<CustomTransition name="fade">
 			<span
@@ -72,11 +72,12 @@ import ColorBubble from '@/components/misc/ColorBubble.vue'
 import Done from '@/components/misc/Done.vue'
 
 import {useCopyToClipboard} from '@/composables/useCopyToClipboard'
-import {useTaskStore} from '@/stores/tasks'
+import {useDelayedLoading} from '@/composables/useDelayedLoading'
+import {useUpdateTaskMutation} from '@/client/queries/taskMutations'
 
-import type {ITask} from '@/modelTypes/ITask'
-import {getEffectiveTaskHexColor, getTaskIdentifier} from '@/models/task'
-import {useProjectStore} from '@/stores/projects'
+import type {Task as ITask} from '@/client/generated'
+import {getEffectiveTaskHexColor, getTaskIdentifier} from '@/helpers/task'
+import {useProjects} from '@/composables/useProjects'
 
 const props = defineProps<{
 	task: ITask,
@@ -100,12 +101,13 @@ async function copyUrl() {
 	await copy(absoluteURL)
 }
 
-const taskStore = useTaskStore()
-const loading = computed(() => taskStore.isLoading)
+const updateTask = useUpdateTaskMutation()
+const loading = useDelayedLoading(updateTask.isPending)
+
+const projectList = useProjects()
+const effectiveTaskColor = computed(() => getEffectiveTaskHexColor(props.task, projectList.projects[props.task.project_id ?? 0]))
 
 const textIdentifier = computed(() => getTaskIdentifier(props.task))
-const projectStore = useProjectStore()
-const effectiveTaskColor = computed(() => getEffectiveTaskHexColor(props.task, projectStore.projects[props.task.projectId]))
 
 // Since loading is global state, this variable ensures we're only showing the saving icon when saving the description.
 const saving = ref(false)
@@ -139,7 +141,7 @@ watch(() => props.task.id, () => {
 
 function handleTitleInput(event: Event) {
 	const target = event.target as HTMLInputElement
-	titleHasChanges.value = target.textContent !== props.task.title
+	titleHasChanges.value = target.textContent !== (props.task.title ?? '')
 }
 
 async function save(element: HTMLElement) {
@@ -147,7 +149,7 @@ async function save(element: HTMLElement) {
 
 	// An empty title would be discarded by the api, so revert and tell the user instead of failing silently.
 	if (title.trim() === '') {
-		element.textContent = props.task.title
+		element.textContent = props.task.title ?? ''
 		titleHasChanges.value = false
 		error({message: t('task.detail.titleRequired')})
 		return
@@ -161,8 +163,9 @@ async function save(element: HTMLElement) {
 
 	try {
 		saving.value = true
-		const newTask = await taskStore.update({
+		const newTask = await updateTask.mutateAsync({
 			...props.task,
+			id: props.task.id!,
 			title,
 		})
 		emit('update:task', newTask)
@@ -177,7 +180,7 @@ async function save(element: HTMLElement) {
 }
 
 async function cancel(element: HTMLInputElement) {
-	element.textContent = props.task.title
+	element.textContent = props.task.title ?? ''
 	titleHasChanges.value = false
 	element.blur()
 }

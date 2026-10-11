@@ -96,7 +96,7 @@
 					{{ $t('user.settings.title') }}
 				</DropdownItem>
 				<DropdownItem
-					v-if="adminPanelEnabled && authStore.info?.isAdmin"
+					v-if="adminPanelEnabled && authStore.info?.is_admin"
 					:to="{ name: 'admin.overview' }"
 				>
 					{{ $t('admin.title') }}
@@ -152,16 +152,16 @@ import { isEditorContentEmpty } from '@/helpers/editorContentEmpty'
 import { useBaseStore } from '@/stores/base'
 import { useConfigStore } from '@/stores/config'
 import { useAuthStore } from '@/stores/auth'
-import type { IProject } from '@/modelTypes/IProject'
+import {useCurrentProject} from '@/composables/useCurrentProject'
 
 const baseStore = useBaseStore()
-// Create a mutable copy to satisfy type requirements (readonly deep -> mutable)
-const currentProject = computed<IProject | null>(() => {
-	const project = baseStore.currentProject
-	return project ? { ...project } as IProject : null
-})
+const {currentProject} = useCurrentProject()
 const background = computed(() => baseStore.background)
-const canWriteCurrentProject = computed(() => baseStore.currentProject?.maxPermission !== null && baseStore.currentProject?.maxPermission !== undefined && baseStore.currentProject.maxPermission > Permissions.READ)
+const canWriteCurrentProject = computed(() =>
+	currentProject.value?.max_permission !== null &&
+	currentProject.value?.max_permission !== undefined &&
+	currentProject.value.max_permission > Permissions.READ,
+)
 const menuActive = computed(() => baseStore.menuActive)
 
 // Standalone pages (no project) surface their route's title in the header.
@@ -175,8 +175,8 @@ const pageTitle = computed(() => {
 const authStore = useAuthStore()
 
 const configStore = useConfigStore()
-const imprintUrl = computed(() => configStore.legal.imprintUrl)
-const privacyPolicyUrl = computed(() => configStore.legal.privacyPolicyUrl)
+const imprintUrl = computed(() => configStore.legal.imprint_url)
+const privacyPolicyUrl = computed(() => configStore.legal.privacy_policy_url)
 const adminPanelEnabled = computed(() => configStore.isProFeatureEnabled(PRO_FEATURE.ADMIN_PANEL))
 </script>
 

@@ -9,7 +9,7 @@
 	>
 		<div
 			class="control"
-			:class="{'is-loading': loading || localLoading}"
+			:class="{'is-loading': showLoading || localLoading}"
 		>
 			<div
 				class="input-wrapper input"
@@ -130,8 +130,8 @@
 							class="create-icon"
 						/>
 						<slot
-							name="searchResult"
-							:option="query"
+							name="createOption"
+							:query="query"
 						>
 							<span class="search-result">
 								{{ query }}
@@ -142,6 +142,15 @@
 						{{ createPlaceholder }}
 					</span>
 				</BaseButton>
+
+				<div
+					v-if="moreResultsHintVisible"
+					class="search-result-hint"
+					role="option"
+					aria-disabled="true"
+				>
+					{{ $t('input.multiselect.moreResultsHint', {shown: searchResults.length, total: totalResults}) }}
+				</div>
 
 				<div
 					v-if="creationHintVisible"
@@ -157,10 +166,11 @@
 </template>
 
 <script setup lang="ts" generic="T extends Record<string, unknown>">
-import {computed, onBeforeUnmount, onMounted, ref, toRefs, useId, watch, type ComponentPublicInstance} from 'vue'
+import {computed, onBeforeUnmount, onMounted, ref, toRefs, useId, watch, type ComponentPublicInstance, type Ref} from 'vue'
 import {useI18n} from 'vue-i18n'
 
 import {closeWhenClickedOutside} from '@/helpers/closeWhenClickedOutside'
+import {useDelayedLoading} from '@/composables/useDelayedLoading'
 
 import BaseButton from '@/components/base/BaseButton.vue'
 import CustomTransition from '@/components/misc/CustomTransition.vue'
@@ -205,6 +215,8 @@ const props = withDefaults(defineProps<{
 	disabled?: boolean
 	/** Accessible name for the search input and result list. Falls back to the placeholder. */
 	ariaLabel?: string
+	/** Total number of matches when `searchResults` holds only the first of them; shows a hint to refine the search. */
+	totalResults?: number
 }>(), {
 	loading: false,
 	placeholder: '',
@@ -224,6 +236,7 @@ const props = withDefaults(defineProps<{
 	id: undefined,
 	name: undefined,
 	ariaLabel: undefined,
+	totalResults: undefined,
 })
 
 const emit = defineEmits<{
@@ -246,6 +259,13 @@ const emit = defineEmits<{
 	'remove': [value: T],
 }>()
 
+defineSlots<{
+	items?(props: {items: T[], remove: (item: T) => void}): unknown
+	tag?(props: {item: T}): unknown
+	searchResult?(props: {option: T}): unknown
+	createOption?(props: {query: string}): unknown
+}>()
+
 const listboxId = useId()
 
 const accessibleName = computed(() => props.ariaLabel || props.placeholder || undefined)
@@ -259,14 +279,15 @@ function elementInResults(elem: string | T, label: string, query: string): boole
 	return elem === query
 }
 
-const query = ref<string | T>('')
+const query = ref('')
 const searchTimeout = ref<ReturnType<typeof setTimeout> | null>(null)
 const localLoading = ref(false)
+const showLoading = useDelayedLoading(() => props.loading)
 const showSearchResults = ref(false)
 
 // Split by `multiple` so the multiple value can never hold a single item or the query text.
-const selectedItems = ref<T[]>([])
-const selectedItem = ref<T | null>(null)
+const selectedItems = ref([]) as Ref<T[]>
+const selectedItem = ref(null) as Ref<T | null>
 
 onMounted(() => document.addEventListener('click', hideSearchResultsHandler))
 onBeforeUnmount(() => document.removeEventListener('click', hideSearchResultsHandler))
@@ -302,7 +323,7 @@ const searchResultsVisible = computed(() => {
 })
 
 const queryHasExactMatch = computed(() => {
-	const hasResult = filteredSearchResults.value.some((elem: T) => elementInResults(elem, props.label, query.value as string))
+	const hasResult = filteredSearchResults.value.some((elem: T) => elementInResults(elem, props.label, query.value))
 	const hasQueryAlreadyAdded = props.multiple && selectedItems.value.some((elem: T) => elementInResults(elem, props.label, query.value))
 
 	return hasResult || hasQueryAlreadyAdded
@@ -313,7 +334,11 @@ const creatableAvailable = computed(() => props.creatable && query.value !== '' 
 // Shown in place of the create option when creation is disabled and the query matches nothing, so the field doesn't look dead.
 const creationHintVisible = computed(() => props.creationDisabledMessage !== '' && !props.creatable && query.value !== '' && !queryHasExactMatch.value)
 
-const filteredSearchResults = computed(() => {
+const moreResultsHintVisible = computed(() => searchResults.value.length > 0
+	&& props.totalResults !== undefined
+	&& props.totalResults > searchResults.value.length)
+
+const filteredSearchResults = computed<T[]>(() => {
 	if (props.multiple) {
 		return searchResults.value.filter((item: T) => !selectedItems.value.some((e: T) => e === item))
 	}
@@ -520,7 +545,7 @@ function createOrSelectOnEnter() {
 
 	if (!creatableAvailable.value) {
 		// Check if there's an exact match for our search term
-		const exactMatch = filteredSearchResults.value.find((elem: T) => elementInResults(elem, props.label, query.value as string))
+		const exactMatch = filteredSearchResults.value.find((elem: T) => elementInResults(elem, props.label, query.value))
 		if (exactMatch) {
 			select(exactMatch)
 		}

@@ -102,6 +102,7 @@
 
 			<EditorContent
 				class="tiptap__editor"
+				data-user-content
 				:class="{'tiptap__editor-is-edit-enabled': isEditing}"
 				:editor="editor"
 				@dblclick="setEditIfApplicable"
@@ -209,6 +210,7 @@ import XButton from '@/components/input/Button.vue'
 
 import {isEditorContentEmpty} from '@/helpers/editorContentEmpty'
 import inputPrompt from '@/helpers/inputPrompt'
+import {getScrollParent} from '@/helpers/getScrollParent'
 import {setLinkInEditor} from '@/components/input/editor/setLinkInEditor'
 import {saveEditorDraft, loadEditorDraft, clearEditorDraft} from '@/helpers/editorDraftStorage'
 import {error} from '@/message'
@@ -433,12 +435,24 @@ function exitEditMode() {
 	}
 }
 
-function setEditIfApplicable(event: MouseEvent) {
+async function setEditIfApplicable(event: MouseEvent) {
 	if (!props.isEditEnabled) return
 	if (isEditing.value) return
 	if (getLightboxImage(event.target) !== null) return
 
-	setEdit()
+	const view = editor.value?.view
+	const pos = view?.posAtCoords({left: event.clientX, top: event.clientY})?.pos
+	if (view === undefined || pos === undefined) {
+		setEdit()
+		return
+	}
+
+	// The toolbar appearing above pushes the content down; scroll it back so the clicked text stays under the pointer.
+	const topBefore = view.coordsAtPos(pos).top
+	internalMode.value = 'edit'
+	await nextTick()
+	getScrollParent(view.dom).scrollBy(0, view.coordsAtPos(pos).top - topBefore)
+	editor.value?.commands.focus(pos)
 }
 
 function setEdit(focus: boolean = true) {
@@ -522,6 +536,7 @@ async function addImage(event: Event) {
 		return
 	}
 
+	if (!(event.target instanceof Element)) return
 	const url = await inputPrompt(event.target.getBoundingClientRect(), t('input.editor.urlPlaceholder'), '', editor.value)
 
 	if (url) {
@@ -660,7 +675,8 @@ defineExpose({setReplyContent})
 
 // See https://github.com/github/hotkey/discussions/85#discussioncomment-5214660
 function setFocusToEditor(event: KeyboardEvent) {
-	const target = event.target as HTMLElement
+	const target = event.target
+	if (!(target instanceof HTMLElement)) return
 	if (target.shadowRoot) {
 		return
 	}
@@ -668,9 +684,9 @@ function setFocusToEditor(event: KeyboardEvent) {
 	const shortcutString = eventToShortcutString(event)
 	if (!shortcutString) return
 	if (shortcutString !== props.editShortcut ||
-		event.target.tagName.toLowerCase() === 'input' ||
-		event.target.tagName.toLowerCase() === 'textarea' ||
-		event.target.contentEditable === 'true') {
+		target.tagName.toLowerCase() === 'input' ||
+		target.tagName.toLowerCase() === 'textarea' ||
+		target.contentEditable === 'true') {
 		return
 	}
 
@@ -739,15 +755,17 @@ function handleEscapeKey(event: KeyboardEvent) {
 	// Don't preventDefault - let ProseMirror's extension handle the actual exit
 }
 
-function clickTasklistCheckbox(event: MouseEvent) {
+function clickTasklistCheckbox(event: Event) {
 	event.stopImmediatePropagation()
 
-	const target = event.target as HTMLElement
+	const target = event.target
+	if (!(target instanceof HTMLElement)) return
 	if (target.localName !== 'p') {
 		return
 	}
 
-	event.target.parentNode.parentNode.firstChild.click()
+	const label = target.parentElement?.parentElement?.firstElementChild
+	if (label instanceof HTMLElement) label.click()
 }
 
 watch(

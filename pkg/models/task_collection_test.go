@@ -18,6 +18,7 @@ package models
 
 import (
 	"sort"
+	"strconv"
 	"testing"
 	"time"
 
@@ -2558,4 +2559,172 @@ func TestTaskCollection_DateFilterTimezoneBoundary(t *testing.T) {
 		}
 	}
 	assert.Truef(t, found, "task due %s (one hour before local midnight) should match", task.DueDate)
+}
+
+func TestTaskCollection_ReadAll_IncludeSubprojects(t *testing.T) {
+	db.LoadAndAssertFixtures(t)
+	s := db.NewSession()
+	defer s.Close()
+
+	const (
+		siblingProjectID            = int64(1001)
+		archivedDescendantProjectID = int64(1002)
+		parentTaskID                = int64(1001)
+		grandchildTaskID            = int64(1002)
+		siblingTaskID               = int64(1003)
+		archivedTaskID              = int64(1004)
+	)
+
+	projects := []*Project{
+		{ID: siblingProjectID, Title: "Sibling of the requested project", OwnerID: 6, ParentProjectID: Ptr(int64(27))},
+		{ID: archivedDescendantProjectID, Title: "Archived descendant", OwnerID: 6, ParentProjectID: Ptr(int64(12)), IsArchived: true},
+	}
+	for _, project := range projects {
+		_, err := s.Insert(project)
+		require.NoError(t, err)
+		require.NoError(t, insertProjectAncestors(s, project.ID, project.parentID()))
+	}
+
+	_, err := s.Insert([]*Task{
+		{ID: parentTaskID, Title: "parent task", ProjectID: 12, CreatedByID: 6, Index: 1},
+		{ID: grandchildTaskID, Title: "grandchild task", ProjectID: 26, CreatedByID: 6, Index: 1},
+		{ID: siblingTaskID, Title: "sibling task", ProjectID: siblingProjectID, CreatedByID: 6, Index: 1},
+		{ID: archivedTaskID, Title: "archived descendant task", ProjectID: archivedDescendantProjectID, CreatedByID: 6, Index: 1},
+	})
+	require.NoError(t, err)
+
+	readTaskIDs := func(t *testing.T, collection *TaskCollection, a web.Auth) []int64 {
+		t.Helper()
+		result, _, _, err := collection.ReadAll(s, a, "", 0, 100)
+		require.NoError(t, err)
+		tasks, ok := result.([]*Task)
+		require.True(t, ok)
+		ids := make([]int64, 0, len(tasks))
+		for _, task := range tasks {
+			ids = append(ids, task.ID)
+		}
+		return ids
+	}
+
+	t.Run("rejects an unrelated user even with descendant inclusion", func(t *testing.T) {
+		collection := &TaskCollection{ProjectID: 12, IncludeSubprojects: true}
+		_, _, _, err := collection.ReadAll(s, &user.User{ID: 2}, "", 1, 100)
+		require.Error(t, err)
+	})
+
+	t.Run("off by default", func(t *testing.T) {
+		ids := readTaskIDs(t, &TaskCollection{ProjectID: 12, SortBy: []string{"id"}}, &user.User{ID: 6})
+		assert.Equal(t, []int64{parentTaskID}, ids)
+	})
+
+	t.Run("includes every unarchived descendant depth but not a sibling", func(t *testing.T) {
+		ids := readTaskIDs(t, &TaskCollection{
+			ProjectID:          12,
+			IncludeSubprojects: true,
+			SortBy:             []string{"id"},
+		}, &user.User{ID: 6})
+		assert.Equal(t, []int64{39, parentTaskID, grandchildTaskID}, ids)
+		assert.NotContains(t, ids, siblingTaskID)
+		assert.NotContains(t, ids, archivedTaskID)
+	})
+
+	t.Run("uses the persisted view setting", func(t *testing.T) {
+		_, err := s.ID(45).Cols("filter").Update(&ProjectView{Filter: &TaskCollection{IncludeSubprojects: true}})
+		require.NoError(t, err)
+
+		ids := readTaskIDs(t, &TaskCollection{ProjectID: 12, ProjectViewID: 45, SortBy: []string{"id"}}, &user.User{ID: 6})
+		assert.Equal(t, []int64{39, parentTaskID, grandchildTaskID}, ids)
+	})
+
+	t.Run("drops position sorting and keeps deterministic id order", func(t *testing.T) {
+		ids := readTaskIDs(t, &TaskCollection{
+			ProjectID:          12,
+			ProjectViewID:      45,
+			IncludeSubprojects: true,
+			SortBy:             []string{"position"},
+			OrderBy:            []string{"desc"},
+		}, &user.User{ID: 6})
+		assert.Equal(t, []int64{39, parentTaskID, grandchildTaskID}, ids)
+	})
+
+	t.Run("is enabled for kanban", func(t *testing.T) {
+		collection := &TaskCollection{ProjectID: 12, ProjectViewID: 48, IncludeSubprojects: true}
+		_, _, _, err := collection.ReadAll(s, &user.User{ID: 6}, "", 0, 100)
+		require.NoError(t, err)
+		assert.True(t, collection.IncludeSubprojects)
+	})
+
+	t.Run("is ignored for link shares", func(t *testing.T) {
+		collection := &TaskCollection{ProjectID: 12, IncludeSubprojects: true, SortBy: []string{"id"}}
+		ids := readTaskIDs(t, collection, &LinkSharing{ID: 1001, ProjectID: 12, SharedByID: 6})
+		assert.Equal(t, []int64{parentTaskID}, ids)
+		assert.False(t, collection.IncludeSubprojects)
+	})
+
+	t.Run("is ignored for global and saved-filter collections", func(t *testing.T) {
+		global := &TaskCollection{IncludeSubprojects: true, SortBy: []string{"id"}}
+		globalIDs := readTaskIDs(t, global, &user.User{ID: 1})
+		globalWithoutFlagIDs := readTaskIDs(t, &TaskCollection{SortBy: []string{"id"}}, &user.User{ID: 1})
+		assert.Equal(t, globalWithoutFlagIDs, globalIDs)
+		assert.False(t, global.IncludeSubprojects)
+
+		savedFilter := &TaskCollection{ProjectID: -2, IncludeSubprojects: true, SortBy: []string{"id"}}
+		savedFilterIDs := readTaskIDs(t, savedFilter, &user.User{ID: 1})
+		savedFilterWithoutFlagIDs := readTaskIDs(t, &TaskCollection{ProjectID: -2, SortBy: []string{"id"}}, &user.User{ID: 1})
+		assert.Equal(t, savedFilterWithoutFlagIDs, savedFilterIDs)
+	})
+}
+
+// TestTaskCollection_SavedFilterIncludeNulls guards #4009: the gantt view of a saved
+// filter sends filter_include_nulls to show dateless tasks. It must apply to the gantt's
+// date filter, but not leak into the saved filter's own conditions.
+func TestTaskCollection_SavedFilterIncludeNulls(t *testing.T) {
+	db.LoadAndAssertFixtures(t)
+	u := &user.User{ID: 1}
+
+	s := db.NewSession()
+	defer s.Close()
+
+	project := &Project{Title: "gantt saved filter", OwnerID: u.ID}
+	insertTestProject(t, s, project)
+
+	dated := &Task{Title: "dated", ProjectID: project.ID, CreatedByID: u.ID, Index: 1,
+		StartDate: time.Date(2020, 6, 1, 0, 0, 0, 0, time.UTC),
+		EndDate:   time.Date(2020, 6, 10, 0, 0, 0, 0, time.UTC)}
+	dateless := &Task{Title: "dateless", ProjectID: project.ID, CreatedByID: u.ID, Index: 2}
+	unassigned := &Task{Title: "dateless unassigned", ProjectID: project.ID, CreatedByID: u.ID, Index: 3}
+	for _, task := range []*Task{dated, dateless, unassigned} {
+		_, err := s.Insert(task)
+		require.NoError(t, err)
+	}
+	for _, task := range []*Task{dated, dateless} {
+		_, err := s.Insert(&TaskAssginee{TaskID: task.ID, UserID: u.ID})
+		require.NoError(t, err)
+	}
+
+	sf := &SavedFilter{
+		Title: "assigned to me",
+		Filters: &TaskCollection{
+			Filter: "done = false && project = " + strconv.FormatInt(project.ID, 10) + " && assignees in user1",
+		},
+	}
+	require.NoError(t, sf.Create(s, u))
+	require.NoError(t, s.Commit())
+
+	s2 := db.NewSession()
+	defer s2.Close()
+
+	tc := &TaskCollection{
+		ProjectID:          getProjectIDFromSavedFilterID(sf.ID),
+		Filter:             "(start_date >= '2020-01-01T00:00:00' && start_date <= '2020-12-31T00:00:00') || (end_date >= '2020-01-01T00:00:00' && end_date <= '2020-12-31T00:00:00')",
+		FilterIncludeNulls: true,
+	}
+	result, _, _, err := tc.ReadAll(s2, u, "", 1, 50)
+	require.NoError(t, err)
+
+	ids := []int64{}
+	for _, task := range result.([]*Task) {
+		ids = append(ids, task.ID)
+	}
+	assert.ElementsMatch(t, []int64{dated.ID, dateless.ID}, ids)
 }

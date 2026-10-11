@@ -213,7 +213,7 @@ var FavoritesPseudoProject = Project{
 // @Failure 500 {object} models.Message "Internal error"
 // @Router /projects [get]
 func (p *Project) ReadAll(s *xorm.Session, a web.Auth, search string, page int, perPage int) (result interface{}, resultCount int, totalItems int64, err error) {
-	prs, resultCount, totalItems, err := getAllRawProjects(s, a, search, page, perPage, p.IsArchived, false)
+	prs, resultCount, totalItems, err := getAllRawProjects(s, a, search, page, perPage, p.IsArchived)
 	if err != nil {
 		return nil, 0, 0, err
 	}
@@ -250,11 +250,7 @@ func (p *Project) ReadAll(s *xorm.Session, a web.Auth, search string, page int, 
 	return prs, resultCount, totalItems, err
 }
 
-func getAllRawProjects(s *xorm.Session, a web.Auth, search string, page int, perPage int, isArchived, listAll bool) (projects []*Project, resultCount int, totalItems int64, err error) {
-	if listAll {
-		return getRawProjectsUnscoped(s, search, page, perPage, isArchived)
-	}
-
+func getAllRawProjects(s *xorm.Session, a web.Auth, search string, page int, perPage int, isArchived bool) (projects []*Project, resultCount int, totalItems int64, err error) {
 	// Check if we're dealing with a share auth
 	shareAuth, is := a.(*LinkSharing)
 	if is {
@@ -303,9 +299,89 @@ func getAllRawProjects(s *xorm.Session, a web.Auth, search string, page int, per
 	return prs, resultCount, totalItems, err
 }
 
+// ListAllProjectsOptions always includes archived projects.
+type ListAllProjectsOptions struct {
+	Search                 string
+	Page                   int
+	PerPage                int
+	OwnerID                int64
+	ExcludeDefaultProjects bool
+	SortBy                 []string
+	OrderBy                []string
+}
+
+var adminProjectSortColumns = map[string]string{
+	"id":      "id",
+	"title":   "title",
+	"owner":   "(SELECT username FROM users WHERE users.id = projects.owner_id)",
+	"created": "created",
+	"updated": "updated",
+}
+
+func adminProjectOrderBy(sortBy, orderBy []string) (string, error) {
+	parts := make([]string, 0, len(sortBy)+1)
+	for i, field := range sortBy {
+		col, ok := adminProjectSortColumns[field]
+		if !ok {
+			return "", ErrInvalidData{Message: fmt.Sprintf("invalid sort_by field %q", field)}
+		}
+		dir := "ASC"
+		if i < len(orderBy) {
+			switch orderBy[i] {
+			case "asc":
+			case "desc":
+				dir = "DESC"
+			default:
+				return "", ErrInvalidData{Message: fmt.Sprintf("invalid order_by value %q", orderBy[i])}
+			}
+		}
+		parts = append(parts, col+" "+dir)
+	}
+	// Tiebreaker keeps pagination stable when the sort column has duplicates.
+	parts = append(parts, "id DESC")
+	return strings.Join(parts, ", "), nil
+}
+
 // ListAllProjects returns every project with owners hydrated; callers must authorize since this bypasses the per-user permission filter.
-func ListAllProjects(s *xorm.Session, search string, page, perPage int, isArchived bool) (projects []*Project, resultCount int, totalItems int64, err error) {
-	projects, resultCount, totalItems, err = getAllRawProjects(s, nil, search, page, perPage, isArchived, true)
+func ListAllProjects(s *xorm.Session, opts *ListAllProjectsOptions) (projects []*Project, resultCount int, totalItems int64, err error) {
+	orderBy, err := adminProjectOrderBy(opts.SortBy, opts.OrderBy)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+
+	conds := []builder.Cond{}
+	if opts.Search != "" {
+		conds = append(conds, projectSearchCond(opts.Search))
+	}
+	if opts.OwnerID > 0 {
+		conds = append(conds, builder.Eq{"owner_id": opts.OwnerID})
+	}
+	if opts.ExcludeDefaultProjects {
+		// Only count a project as default for its own owner; anyone can point their default at a foreign project.
+		conds = append(conds, builder.NotExists(
+			builder.Select("1").From("users").Where(builder.And(
+				builder.Expr("users.id = projects.owner_id"),
+				builder.Expr("users.default_project_id = projects.id"),
+			)),
+		))
+	}
+	var where = builder.Expr("1 = 1")
+	if len(conds) > 0 {
+		where = builder.And(conds...)
+	}
+
+	limit, start := getLimitFromPageIndex(opts.Page, opts.PerPage)
+	query := s.Where(where).OrderBy(orderBy)
+	if limit > 0 {
+		query = query.Limit(limit, start)
+	}
+
+	projects = []*Project{}
+	if err = query.Find(&projects); err != nil {
+		return nil, 0, 0, err
+	}
+
+	totalItems, err = s.Where(where).Count(&Project{})
 	if err != nil {
 		return nil, 0, 0, err
 	}
@@ -322,39 +398,6 @@ func ListAllProjects(s *xorm.Session, search string, page, perPage int, isArchiv
 		if o, ok := owners[p.OwnerID]; ok {
 			p.Owner = o
 		}
-	}
-
-	return projects, resultCount, totalItems, nil
-}
-
-func getRawProjectsUnscoped(s *xorm.Session, search string, page, perPage int, isArchived bool) (projects []*Project, resultCount int, totalItems int64, err error) {
-	limit, start := getLimitFromPageIndex(page, perPage)
-
-	conds := []builder.Cond{}
-	if !isArchived {
-		conds = append(conds, builder.Eq{"is_archived": false})
-	}
-	if search != "" {
-		conds = append(conds, projectSearchCond(search))
-	}
-	var where = builder.Expr("1 = 1")
-	if len(conds) > 0 {
-		where = builder.And(conds...)
-	}
-
-	query := s.Where(where).OrderBy("id DESC")
-	if limit > 0 {
-		query = query.Limit(limit, start)
-	}
-
-	projects = []*Project{}
-	if err = query.Find(&projects); err != nil {
-		return nil, 0, 0, err
-	}
-
-	totalItems, err = s.Where(where).Count(&Project{})
-	if err != nil {
-		return nil, 0, 0, err
 	}
 
 	return projects, len(projects), totalItems, nil
@@ -1376,10 +1419,13 @@ func (p *Project) Create(s *xorm.Session, a web.Auth) (err error) {
 	return fullProject.ReadOne(s, a)
 }
 
+// Others' defaults don't count: anyone with write access can set one.
 func (p *Project) isDefaultProject(s *xorm.Session) (is bool, err error) {
 	return s.
-		Where("default_project_id = ?", p.ID).
-		Exist(&user.User{})
+		Table("users").
+		Join("INNER", "projects", "projects.id = users.default_project_id AND projects.owner_id = users.id").
+		Where("projects.id = ?", p.ID).
+		Exist()
 }
 
 // Delete implements the delete method of CRUDable
@@ -1395,13 +1441,18 @@ func (p *Project) isDefaultProject(s *xorm.Session) (is bool, err error) {
 // @Failure 500 {object} models.Message "Internal error"
 // @Router /projects/{id} [delete]
 func (p *Project) Delete(s *xorm.Session, a web.Auth) (err error) {
+	// The handler passes a stub without owner_id.
+	fullProject, err := GetProjectSimpleByID(s, p.ID)
+	if err != nil {
+		return
+	}
 
 	isDefaultProject, err := p.isDefaultProject(s)
 	if err != nil {
 		return err
 	}
 	// Owners should be allowed to delete the default project
-	if isDefaultProject && p.OwnerID != a.GetID() {
+	if isDefaultProject && fullProject.OwnerID != a.GetID() {
 		return &ErrCannotDeleteDefaultProject{ProjectID: p.ID}
 	}
 
@@ -1427,24 +1478,16 @@ func (p *Project) Delete(s *xorm.Session, a web.Auth) (err error) {
 		}
 	}
 
-	fullProject, err := GetProjectSimpleByID(s, p.ID)
-	if err != nil {
-		return
-	}
-
 	err = fullProject.DeleteBackgroundFileIfExists(s)
 	if err != nil {
 		return
 	}
 
-	// If we're deleting a default project, remove it as default
-	if isDefaultProject {
-		_, err = s.Where("default_project_id = ?", p.ID).
-			Cols("default_project_id").
-			Update(&user.User{DefaultProjectID: 0})
-		if err != nil {
-			return
-		}
+	_, err = s.Where("default_project_id = ?", p.ID).
+		Cols("default_project_id").
+		Update(&user.User{DefaultProjectID: 0})
+	if err != nil {
+		return
 	}
 
 	// Delete related project entities

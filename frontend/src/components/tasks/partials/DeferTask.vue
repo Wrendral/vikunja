@@ -1,6 +1,6 @@
 <template>
 	<div
-		:class="{ 'is-loading': taskService.loading }"
+		:class="{ 'is-loading': updating }"
 		class="defer-task loading-container"
 		@click.stop
 		@mousedown.stop
@@ -40,13 +40,15 @@
 </template>
 
 <script setup lang="ts">
-import {ref, shallowReactive, watch, onBeforeUnmount} from 'vue'
+import {parseDateOrNull} from '@/helpers/parseDateOrNull'
+import {ref, watch, onBeforeUnmount} from 'vue'
 import {useDebounceFn} from '@vueuse/core'
 
 import DatepickerInline from '@/components/input/DatepickerInline.vue'
 
-import TaskService from '@/services/task'
-import type {ITask} from '@/modelTypes/ITask'
+import {useUpdateTaskMutation} from '@/client/queries/taskMutations'
+import {useDelayedLoading} from '@/composables/useDelayedLoading'
+import type {Task as ITask} from '@/client/generated'
 
 const props = defineProps<{
 	modelValue: ITask,
@@ -56,7 +58,8 @@ const emit = defineEmits<{
 	'update:modelValue': [value: ITask]
 }>()
 
-const taskService = shallowReactive(new TaskService())
+const update = useUpdateTaskMutation()
+const updating = useDelayedLoading(update.isPending)
 const task = ref<ITask>()
 
 // We're saving the due date separately to prevent null errors in very short periods where the task is null.
@@ -67,8 +70,8 @@ watch(
 	() => props.modelValue,
 	(value) => {
 		task.value = { ...value }
-		dueDate.value = value.dueDate
-		lastValue.value = value.dueDate
+		dueDate.value = parseDateOrNull(value.due_date)
+		lastValue.value = dueDate.value
 	},
 	{immediate: true},
 )
@@ -94,15 +97,16 @@ async function updateDueDate() {
 		return
 	}
 
-	if (+new Date(dueDate.value) === +lastValue.value) {
+	if (lastValue.value != null && +new Date(dueDate.value) === +lastValue.value) {
 		return
 	}
 
-	const newTask = await taskService.update({
+	const newTask = await update.mutateAsync({
 		...task.value,
-		dueDate: new Date(dueDate.value),
+		id: task.value!.id!,
+		due_date: new Date(dueDate.value).toISOString(),
 	})
-	lastValue.value = newTask.dueDate
+	lastValue.value = parseDateOrNull(newTask.due_date)
 	task.value = newTask
 	emit('update:modelValue', newTask)
 }
