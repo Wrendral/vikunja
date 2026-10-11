@@ -1,4 +1,4 @@
-import {watch, type Ref} from 'vue'
+import {ref, watch, type Ref} from 'vue'
 import type {RouteLocationNormalized, RouteLocationRaw, LocationQueryRaw} from 'vue-router'
 
 import {useViewFiltersStore} from '@/stores/viewFilters'
@@ -9,17 +9,15 @@ import {parseBooleanProp} from '@/helpers/time/parseBooleanProp'
 import {useRouteFilters, type UseRouteFiltersReturn} from '@/composables/useRouteFilters'
 import {useGanttTaskList, type UseGanttTaskListReturn} from './useGanttTaskList'
 
-import type {IProject} from '@/modelTypes/IProject'
-import type {TaskFilterParams} from '@/services/taskCollection'
+import type {TaskFilterParams} from '@/client/queries/tasks'
 
 import type {DateISO} from '@/types/DateISO'
 import type {DateKebab} from '@/types/DateKebab'
-import type {IProjectView} from '@/modelTypes/IProjectView'
 
 // convenient internal filter object
 export interface GanttFilters {
-	projectId: IProject['id']
-	viewId: IProjectView['id'],
+	projectId: number
+	viewId: number,
 	dateFrom: DateISO
 	dateTo: DateISO
 	showTasksWithoutDates: boolean
@@ -41,7 +39,7 @@ function getDefaultDateTo() {
 }
 
 // FIXME: use zod for this
-function ganttRouteToFilters(route: Partial<RouteLocationNormalized>, projectId: IProject['id'], viewId: IProjectView['id']): GanttFilters {
+function ganttRouteToFilters(route: Partial<RouteLocationNormalized>, projectId: number, viewId: number): GanttFilters {
 	return {
 		projectId,
 		viewId,
@@ -51,12 +49,12 @@ function ganttRouteToFilters(route: Partial<RouteLocationNormalized>, projectId:
 	}
 }
 
-function ganttGetDefaultFilters(projectId: IProject['id'], viewId: IProjectView['id']): GanttFilters {
+function ganttGetDefaultFilters(projectId: number, viewId: number): GanttFilters {
 	return ganttRouteToFilters({}, projectId, viewId)
 }
 
 // FIXME: use zod for this
-function ganttFiltersToRoute(filters: GanttFilters): RouteLocationRaw {
+function ganttFiltersToRoute(filters: GanttFilters) {
 	let query: Record<string, string> = {}
 	if (
 		filters.dateFrom !== getDefaultDateFrom() ||
@@ -82,25 +80,7 @@ function ganttFiltersToRoute(filters: GanttFilters): RouteLocationRaw {
 	}
 }
 
-const GANTT_QUERY_PARAMS = ['dateFrom', 'dateTo', 'showTasksWithoutDates']
-
-function ganttFiltersToRoutePreservingQuery(
-	filters: GanttFilters,
-	currentQuery: RouteLocationNormalized['query'],
-): RouteLocationRaw {
-	const routeLocation = ganttFiltersToRoute(filters) as {query: LocationQueryRaw}
-	const ganttQuery = routeLocation.query
-	const query: LocationQueryRaw = {...currentQuery, ...ganttQuery}
-	for (const key of GANTT_QUERY_PARAMS) {
-		if (!(key in ganttQuery)) {
-			delete query[key]
-		}
-	}
-
-	return {...routeLocation, query}
-}
-
-function ganttFiltersToApiParams(filters: GanttFilters, includeSubprojects: boolean): TaskFilterParams {
+function ganttFiltersToApiParams(filters: GanttFilters, includeSubprojects = false): TaskFilterParams {
 	const dateFrom = isoToKebabDate(filters.dateFrom)
 	const dateTo = isoToKebabDate(filters.dateTo)
 
@@ -115,8 +95,17 @@ function ganttFiltersToApiParams(filters: GanttFilters, includeSubprojects: bool
 			'(start_date <= "' + dateFrom + '" && end_date >= "' + dateTo + '")' +
 			')',
 		filter_include_nulls: filters.showTasksWithoutDates,
-		expand: 'subtasks',
+		expand: ['subtasks'],
 	}
+}
+
+function ganttFiltersToRoutePreservingQuery(filters: GanttFilters, currentQuery: RouteLocationNormalized['query']): RouteLocationRaw {
+	const location = ganttFiltersToRoute(filters)
+	const query: LocationQueryRaw = {...currentQuery, ...location.query}
+	for (const key of ['dateFrom', 'dateTo', 'showTasksWithoutDates']) {
+		if (!(key in (location.query ?? {}))) delete query[key]
+	}
+	return {...location, query}
 }
 
 export type UseGanttFiltersReturn =
@@ -125,9 +114,9 @@ export type UseGanttFiltersReturn =
 
 export function useGanttFilters(
 	route: Ref<RouteLocationNormalized>,
-	projectId: Ref<IProject['id']>,
-	viewId: Ref<IProjectView['id']>,
-	includeSubprojects: Readonly<Ref<boolean>>,
+	projectId: Ref<number>,
+	viewId: Ref<number>,
+	includeSubprojects: Readonly<Ref<boolean>> = ref(false),
 ): UseGanttFiltersReturn {
 	const viewFiltersStore = useViewFiltersStore()
 
@@ -141,7 +130,7 @@ export function useGanttFilters(
 		route,
 		() => ganttGetDefaultFilters(projectId.value, viewId.value),
 		r => ganttRouteToFilters(r, projectId.value, viewId.value),
-		filters => ganttFiltersToRoutePreservingQuery(filters, route.value.query),
+		current => ganttFiltersToRoutePreservingQuery(current, route.value.query),
 		['project.view'],
 	)
 
@@ -167,15 +156,7 @@ export function useGanttFilters(
 		isLoading,
 		addTask,
 		updateTask,
-	} = useGanttTaskList<GanttFilters>(
-		filters,
-		currentFilters => ganttFiltersToApiParams(currentFilters, includeSubprojects.value),
-		viewId,
-	)
-
-	watch(includeSubprojects, () => {
-		loadTasks()
-	})
+	} = useGanttTaskList<GanttFilters>(filters, current => ganttFiltersToApiParams(current, includeSubprojects.value), viewId)
 
 	return {
 		filters,

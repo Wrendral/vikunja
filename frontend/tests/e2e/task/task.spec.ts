@@ -72,7 +72,7 @@ async function addLabelToTaskAndVerify(page: Page, labelTitle: string) {
 
 async function uploadAttachmentAndVerify(page: Page, taskId: number, file = 'tests/fixtures/image.jpg') {
 	const uploadAttachmentPromise = page.waitForResponse(response =>
-		response.url().includes(`/tasks/${taskId}/attachments`) && response.request().method() === 'PUT',
+		response.url().includes(`/api/v2/tasks/${taskId}/attachments`) && response.request().method() === 'POST',
 	)
 	// The "Add Attachments" button triggers openFilePicker() which may open
 	// a native file chooser (especially inside a <dialog>). Handle it via the
@@ -137,7 +137,7 @@ test.describe('Task', () => {
 
 		// Wait for the favorite API response
 		const favoritePromise = page.waitForResponse(response =>
-			response.url().includes('/tasks/') && response.request().method() === 'POST',
+			response.url().includes('/tasks/') && response.request().method() === 'PATCH',
 		)
 		await favoriteButton.click()
 		await favoritePromise
@@ -406,20 +406,6 @@ test.describe('Task', () => {
 			await expect(page.locator('.task-view .details.content.description .tiptap button.done-edit')).toBeVisible()
 		})
 
-		test('Can add a new comment', async ({authenticatedPage: page}) => {
-			const tasks = await TaskFactory.create(1, {
-				id: 1,
-			})
-			await page.goto(`/tasks/${tasks[0].id}`)
-
-			await expect(page.locator('.task-view .comments .media.comment .tiptap__editor .tiptap.ProseMirror')).toBeVisible()
-			await page.locator('.task-view .comments .media.comment .tiptap__editor .tiptap.ProseMirror').fill('New Comment')
-			await page.locator('.task-view .comments .media.comment .button:not([disabled])').filter({hasText: 'Comment'}).click()
-
-			await expect(page.locator('.task-view .comments .media.comment .tiptap__editor').first()).toContainText('New Comment')
-			await expect(page.locator('.global-notification')).toContainText('Success')
-		})
-
 		test('Can move a task to another project', async ({authenticatedPage: page}) => {
 			const projects = await ProjectFactory.create(2)
 			const views = await createDefaultViews(projects[0].id, 10)
@@ -441,6 +427,7 @@ test.describe('Task', () => {
 			await multiselectInput.pressSequentially(projects[1].title.substring(0, 10), {delay: 20})
 			// Wait for the search results to appear (there's a 200ms debounce in the multiselect)
 			await expect(page.locator('.task-view .content.details .field .multiselect.control .search-results')).toBeVisible({timeout: 5000})
+			await expect(page.locator('.task-view .content.details .field .multiselect.control .search-results').locator('> *').first()).toContainText(projects[1].title)
 			await page.locator('.task-view .content.details .field .multiselect.control .search-results').locator('> *').first().click()
 
 			await expect(page.locator('.task-view nav.subtitle')).toContainText(projects[1].title)
@@ -463,7 +450,114 @@ test.describe('Task', () => {
 			await expect(page).toHaveURL(new RegExp(`/projects/${tasks[0].project_id}/`))
 		})
 
-		test('Can add an assignee to a task', async ({authenticatedPage: page}) => {
+		test('an edit in the task detail shows in the list and the kanban board without a reload', async ({authenticatedPage: page, apiContext, userToken}) => {
+			const [task] = await TaskFactory.create(1, {
+				id: 1,
+				project_id: projects[0].id,
+				title: 'Before rename',
+			}) as Task[]
+			await TaskBucketFactory.create(1, {
+				task_id: task.id,
+				bucket_id: buckets[0].id,
+				project_view_id: buckets[0].project_view_id,
+			})
+
+			await page.goto(`/tasks/${task.id}`)
+			const heading = page.locator('.task-view h1[contenteditable]')
+			await expect(heading).toContainText('Before rename')
+			const renamed = page.waitForResponse(r =>
+				new URL(r.url()).pathname.endsWith(`/tasks/${task.id}`) && r.request().method() === 'PATCH',
+			)
+			await heading.fill('After rename')
+			await heading.press('Enter')
+			expect((await renamed).ok()).toBeTruthy()
+
+			// Client-side navigation only: the cached list and board must already carry the new title.
+			await page.locator('.task-view nav.subtitle a').first().click()
+			await expect(page).toHaveURL(/\/projects\/1\/\d+/)
+			await page.locator(`.switch-view-button[href^="/projects/${projects[0].id}/1"]`).click()
+			await expect(page.locator('.tasks .task').filter({hasText: 'After rename'})).toBeVisible()
+			await expect(page.locator('.tasks .task').filter({hasText: 'Before rename'})).toHaveCount(0)
+
+			await page.locator(`.switch-view-button[href^="/projects/${projects[0].id}/4"]`).click()
+			const card = page.locator('.kanban .bucket .tasks .task')
+			await expect(card.filter({hasText: 'After rename'})).toBeVisible()
+			await expect(card.filter({hasText: 'Before rename'})).toHaveCount(0)
+
+			await page.reload()
+			await expect(card.filter({hasText: 'After rename'})).toBeVisible()
+			await expect(card.filter({hasText: 'Before rename'})).toHaveCount(0)
+
+			const stored = await apiContext.get(`tasks/${task.id}`, {
+				headers: {Authorization: `Bearer ${userToken}`},
+			})
+			expect(stored.ok()).toBe(true)
+			expect((await stored.json()).title).toBe('After rename')
+		})
+
+		test('a task deleted in the detail disappears from the kanban board without a reload', async ({authenticatedPage: page, apiContext, userToken}) => {
+			const [task] = await TaskFactory.create(1, {
+				id: 1,
+				project_id: projects[0].id,
+				title: 'Doomed task',
+			}) as Task[]
+			await TaskBucketFactory.create(1, {
+				task_id: task.id,
+				bucket_id: buckets[0].id,
+				project_view_id: buckets[0].project_view_id,
+			})
+
+			await page.goto(`/projects/${projects[0].id}/4`)
+			const card = page.locator('.kanban .bucket .tasks .task').filter({hasText: task.title})
+			await expect(card).toBeVisible()
+			await card.click()
+
+			await page.locator('.task-view .action-buttons .button').filter({hasText: 'Delete'}).click()
+			await expect(page.locator('dialog[open] .modal-content .modal-header')).toContainText('Delete this task')
+			await page.locator('dialog[open] .modal-content .actions .button').filter({hasText: 'Do it!'}).click()
+			await expect(page.locator('.global-notification')).toContainText('Success')
+
+			await expect(page).toHaveURL(/\/projects\/1\/\d+/)
+			await page.locator(`.switch-view-button[href^="/projects/${projects[0].id}/4"]`).click()
+			await expect(page.locator('.kanban .bucket .tasks')).toBeVisible()
+			await expect(page.locator('.kanban .bucket .tasks .task').filter({hasText: task.title})).toHaveCount(0)
+
+			await page.reload()
+			await expect(page.locator('.kanban .bucket .tasks')).toBeVisible()
+			await expect(page.locator('.kanban .bucket .tasks .task').filter({hasText: task.title})).toHaveCount(0)
+
+			const stored = await apiContext.get(`tasks/${task.id}`, {
+				headers: {Authorization: `Bearer ${userToken}`},
+			})
+			expect(stored.status()).toBe(404)
+		})
+
+		test('leaving a task with unsaved description edits after it was deleted elsewhere does not block navigation', async ({authenticatedPage: page, apiContext, userToken}) => {
+			const [task] = await TaskFactory.create(1, {
+				id: 1,
+				project_id: projects[0].id,
+				description: 'Old Description',
+			}) as Task[]
+
+			await page.goto(`/tasks/${task.id}`)
+			await page.locator('.task-view .details.content.description .tiptap button.done-edit', {timeout: 30_000}).click()
+			const editor = page.locator('.task-view .details.content.description .tiptap__editor .tiptap.ProseMirror')
+			await expect(editor).toBeVisible()
+			await editor.fill('Unsaved description')
+
+			const deleted = await apiContext.delete(`tasks/${task.id}`, {
+				headers: {Authorization: `Bearer ${userToken}`},
+			})
+			expect(deleted.ok()).toBeTruthy()
+
+			await page.locator(`li[data-project-id="${projects[0].id}"] .list-menu-link`).first().click()
+
+			await expect(page).toHaveURL(/\/projects\/1\/\d+/)
+			await expect(page.locator('.switch-view-container')).toBeVisible()
+			await expect(page.locator('.task-view')).toHaveCount(0)
+		})
+
+		test('Can add an assignee to a task', async ({authenticatedPage: page, apiContext, userToken}) => {
 			// Create users with IDs starting at 100 to avoid conflict with logged-in user (ID 1)
 			// Don't truncate to preserve the authenticated user from the fixture
 			const users = await UserFactory.create(5, {
@@ -495,10 +589,25 @@ test.describe('Task', () => {
 			await input.pressSequentially(userToAssign.username.substring(0, 10), {delay: 20})
 			// Wait for search results (200ms debounce + API request time)
 			await expect(page.locator('.task-view .column.assignees .multiselect .search-results')).toBeVisible({timeout: 5000})
-			await page.locator('.task-view .column.assignees .multiselect .search-results').locator('> *').first().click()
+			// Focus preloads every project member, so pick the matching result rather than the first.
+			const result = page.locator('.task-view .column.assignees .multiselect .search-result-button').filter({hasText: userToAssign.username})
+			await expect(result).toBeVisible()
+			await result.click()
 
 			await expect(page.locator('.global-notification')).toContainText('Success')
-			await expect(page.locator('.task-view .column.assignees .multiselect .input-wrapper span.assignee')).toBeVisible()
+			const assignees = page.locator('.task-view .column.assignees .multiselect .input-wrapper span.assignee')
+			await expect(assignees).toBeVisible()
+
+			await page.reload()
+			await expect(assignees).toHaveCount(1)
+			await expect(page.getByRole('button', {name: `Remove ${userToAssign.username} as assignee`})).toBeVisible()
+
+			const resp = await apiContext.get(`tasks/${tasks[0].id}`, {
+				headers: {Authorization: `Bearer ${userToken}`},
+			})
+			expect(resp.ok()).toBe(true)
+			const {assignees: apiAssignees} = await resp.json()
+			expect(apiAssignees.map((a: User) => a.id)).toEqual([userToAssign.id])
 		})
 
 		test('Can remove an assignee from a task', async ({authenticatedPage: page}) => {
@@ -524,6 +633,51 @@ test.describe('Task', () => {
 			await expect(page.locator('.task-view .column.assignees .multiselect .input-wrapper span.assignee')).not.toBeVisible()
 		})
 
+		test('Keeps a removed assignee unassigned after saving another field', async ({authenticatedPage: page, apiContext, userToken}) => {
+			const [removed, kept] = await UserFactory.create(2, {
+				id: (i: number) => 100 + i,
+			}, false)
+			const [project] = await ProjectFactory.create(1)
+			const [task] = await TaskFactory.create(1, {
+				id: 1,
+				project_id: project.id,
+			})
+			await UserProjectFactory.create(2, {
+				project_id: project.id,
+				user_id: (i: number) => 100 + i,
+			})
+			await TaskAssigneeFactory.create(2, {
+				task_id: task.id,
+				user_id: (i: number) => 100 + i,
+			})
+
+			await page.goto(`/tasks/${task.id}`)
+
+			const assignees = page.locator('.task-view .column.assignees .multiselect .input-wrapper span.assignee')
+			await expect(assignees).toHaveCount(2)
+			await page.getByRole('button', {name: `Remove ${removed.username} as assignee`}).click()
+			await expect(page.locator('.global-notification')).toContainText('Success')
+			await expect(assignees).toHaveCount(1)
+
+			const saved = page.waitForResponse(r =>
+				r.url().includes(`/tasks/${task.id}`) && r.request().method() === 'PATCH',
+			)
+			await page.locator('.task-view .action-buttons .button').filter({hasText: 'Set Priority'}).click()
+			await page.locator('.task-view .columns.details .column').filter({hasText: 'Priority'}).locator('.select select').selectOption('Urgent')
+			await saved
+
+			const resp = await apiContext.get(`tasks/${task.id}`, {
+				headers: {Authorization: `Bearer ${userToken}`},
+			})
+			expect(resp.ok()).toBe(true)
+			const {assignees: apiAssignees} = await resp.json()
+			expect(apiAssignees.map((a: User) => a.id)).toEqual([kept.id])
+
+			await page.reload()
+			await expect(assignees).toHaveCount(1)
+			await expect(assignees).toContainText(kept.username)
+		})
+
 		test('Can add a new label to a task', async ({authenticatedPage: page}) => {
 			const tasks = await TaskFactory.create(1, {
 				id: 1,
@@ -536,11 +690,40 @@ test.describe('Task', () => {
 			await expect(page.locator('.task-view .action-buttons .button').filter({hasText: 'Add Labels'})).toBeVisible()
 			await page.locator('.task-view .action-buttons .button').filter({hasText: 'Add Labels'}).click()
 			await page.locator('.task-view .details.labels-list .multiselect input').fill(newLabelText)
+			const createOption = page.locator('.task-view .details.labels-list .multiselect .search-results .is-create-option')
+			await expect(createOption).toHaveRole('option')
+			await expect(createOption.locator('span.tag.search-result')).toHaveText(newLabelText)
+			await expect(createOption.locator('.hint-text')).toHaveText('Add this as new label')
 			await page.locator('.task-view .details.labels-list .multiselect .search-results').locator('> *').first().click()
 
 			await expect(page.locator('.global-notification')).toContainText('Success')
 			await expect(page.locator('.task-view .details.labels-list .multiselect .input-wrapper span.tag')).toBeVisible()
 			await expect(page.locator('.task-view .details.labels-list .multiselect .input-wrapper span.tag')).toContainText(newLabelText)
+		})
+
+		test('Can create a new label with the keyboard', async ({authenticatedPage: page}) => {
+			const tasks = await TaskFactory.create(1, {
+				id: 1,
+				project_id: 1,
+			})
+			const newLabelText = 'keyboard label'
+
+			await page.goto(`/tasks/${tasks[0].id}`)
+
+			await page.locator('.task-view .action-buttons .button').filter({hasText: 'Add Labels'}).click()
+			const labelInput = page.locator('.task-view .details.labels-list .multiselect input')
+			await labelInput.fill(newLabelText)
+			const createOption = page.locator('.task-view .details.labels-list .multiselect .search-results .is-create-option')
+			await expect(createOption).toContainText(newLabelText)
+
+			await labelInput.press('ArrowDown')
+			await expect(createOption).toBeFocused()
+			await page.keyboard.press('Enter')
+
+			await expect(page.locator('.global-notification')).toContainText('Success')
+			await expect(page.locator('.task-view .details.labels-list .multiselect .input-wrapper span.tag')).toHaveCount(1)
+			await expect(page.locator('.task-view .details.labels-list .multiselect .input-wrapper span.tag')).toContainText(newLabelText)
+			await expect(labelInput).toBeFocused()
 		})
 
 		test('Can add an existing label to a task', async ({authenticatedPage: page}) => {
@@ -821,7 +1004,7 @@ test.describe('Task', () => {
 			await popup.getByRole('textbox', {name: 'Minutes', exact: true}).fill('37')
 
 			const [response] = await Promise.all([
-				page.waitForResponse(r => r.url().endsWith(`/tasks/${tasks[0].id}`) && r.request().method() === 'POST', {timeout: 5000}),
+				page.waitForResponse(r => r.url().endsWith(`/tasks/${tasks[0].id}`) && r.request().method() === 'PATCH', {timeout: 5000}),
 				popup.getByRole('button', {name: 'Confirm', exact: true}).click(),
 			])
 			expect(response.ok()).toBeTruthy()
@@ -838,6 +1021,26 @@ test.describe('Task', () => {
 			const reopened = await openDueDatePopupWithShortcut(page)
 			await expect(reopened.getByRole('textbox', {name: 'Minutes', exact: true})).toHaveValue('37')
 		})
+
+		for (const field of ['Hours', 'Minutes']) {
+			test(`Confirms typed due date ${field} with Enter`, async ({authenticatedPage: page}) => {
+				const task = (await TaskFactory.create(1, {
+					due_date: '2026-10-01T12:00:00Z',
+				}))[0]
+				await page.goto(`/tasks/${task.id}`)
+				const popup = await openDueDatePopupWithShortcut(page)
+				const input = popup.getByRole('textbox', {name: field, exact: true})
+				const value = field === 'Hours' ? '09' : '37'
+				await input.fill(value)
+				await input.press('Enter')
+				await expect(popup).not.toBeVisible()
+				await expect(page.locator('.global-notification')).toContainText('Success')
+
+				await page.reload()
+				const reopened = await openDueDatePopupWithShortcut(page)
+				await expect(reopened.getByRole('textbox', {name: field, exact: true})).toHaveValue(value)
+			})
+		}
 
 		test('Can reopen the due date popup after confirming or dismissing it', async ({authenticatedPage: page}) => {
 			const tasks = await TaskFactory.create(1, {id: 1, done: false})
@@ -964,7 +1167,7 @@ test.describe('Task', () => {
 			await page.goto(`/tasks/${tasks[0].id}`)
 
 			const uploadAttachmentPromise = page.waitForResponse(response =>
-				response.url().includes(`/tasks/${tasks[0].id}/attachments`) && response.request().method() === 'PUT',
+				response.url().includes(`/api/v2/tasks/${tasks[0].id}/attachments`) && response.request().method() === 'POST',
 			)
 
 			const editor = page.locator('.task-view .details.content.description .tiptap__editor .tiptap.ProseMirror')
@@ -1124,8 +1327,8 @@ test.describe('Task', () => {
 
 			// Track whether any task save request fires
 			let saveRequestFired = false
-			await page.route('**/api/v1/tasks/*', async (route) => {
-				if (route.request().method() === 'POST' || route.request().method() === 'PUT') {
+			await page.route('**/api/v2/tasks/*', async (route) => {
+				if (route.request().method() === 'PATCH') {
 					saveRequestFired = true
 				}
 				await route.continue()
@@ -1199,13 +1402,20 @@ test.describe('Task', () => {
 			await expect(page.locator('.task-view .columns.details .column').filter({hasText: 'Progress'}).locator('.select select')).toHaveValue('0.5')
 		})
 
-		test('Can add an attachment to a task', async ({authenticatedPage: page}) => {
+		test('Can add an attachment to a task', async ({authenticatedPage: page, apiContext, userToken}) => {
 			const tasks = await TaskFactory.create(1, {
 				id: 1,
 			})
 			await page.goto(`/tasks/${tasks[0].id}`)
 
 			await uploadAttachmentAndVerify(page, tasks[0].id)
+			await page.reload()
+			await expect(page.locator('.attachments .files .attachment')).toHaveCount(1)
+			const stored = await apiContext.get(`tasks/${tasks[0].id}/attachments`, {
+				headers: {Authorization: `Bearer ${userToken}`},
+			})
+			expect(stored.ok()).toBeTruthy()
+			expect(await stored.json()).toHaveLength(1)
 		})
 
 		test('Can add an attachment to a task and see it appearing on kanban', async ({authenticatedPage: page}) => {
@@ -1257,7 +1467,7 @@ test.describe('Task', () => {
 			expect(blob.size).toBeGreaterThan(0)
 		})
 
-		test('Can delete an attachment', async ({authenticatedPage: page}) => {
+		test('Can delete an attachment', async ({authenticatedPage: page, apiContext, userToken}) => {
 			const tasks = await TaskFactory.create(1, {
 				id: 1,
 				project_id: projects[0].id,
@@ -1273,6 +1483,7 @@ test.describe('Task', () => {
 				'.attachments .attachments .files .attachment .attachment-info-meta-button:has(svg[data-icon="trash-can"])',
 			).first()
 			await expect(deleteButton).toBeVisible()
+			await expect(page.locator('.attachments .attachments .files .attachment')).toHaveCount(1)
 
 			const deleted = page.waitForResponse(r =>
 				/\/tasks\/\d+\/attachments\/\d+/.test(r.url()) && r.request().method() === 'DELETE',
@@ -1284,6 +1495,16 @@ test.describe('Task', () => {
 			await deleted
 
 			await expect(page.locator('.attachments .attachments .files .attachment')).toHaveCount(0)
+			await page.reload()
+			// toHaveCount(0) alone would also pass on a page that has not rendered the task yet;
+			// the attachments section itself collapses once the last attachment is gone
+			await expect(page.locator('.task-view h1[contenteditable]')).toContainText(tasks[0].title)
+			await expect(page.locator('.attachments .files .attachment')).toHaveCount(0)
+			const stored = await apiContext.get(`tasks/${tasks[0].id}/attachments`, {
+				headers: {Authorization: `Bearer ${userToken}`},
+			})
+			expect(stored.ok()).toBeTruthy()
+			expect(await stored.json()).toEqual([])
 		})
 
 		test('read-only shared user cannot delete attachments', async ({authenticatedPage: page, apiContext, currentUser}) => {
@@ -1517,7 +1738,7 @@ test.describe('Task', () => {
 			// recognize it as an attachment URL and load it with authentication
 			await TaskFactory.create(1, {
 				id: 1,
-				description: `<img src="${apiUrl}/tasks/${tasks[0].id}/attachments/${success[0].id}" alt="test image">`,
+				description: `<img src="${apiUrl}/api/v2/tasks/${tasks[0].id}/attachments/${success[0].id}" alt="test image">`,
 			})
 
 			await page.goto(`/tasks/${tasks[0].id}`)

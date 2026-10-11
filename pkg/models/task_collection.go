@@ -59,6 +59,9 @@ type TaskCollection struct {
 	Expand []TaskCollectionExpandable `query:"expand" json:"-"`
 
 	isSavedFilter bool
+	// Request filter on a saved filter which includes nulls. Kept apart so
+	// include-nulls doesn't leak into the saved filter's own conditions.
+	nullableFilter string
 
 	// forceFlatTasks makes ReadAll always return []*Task, never []*Bucket, even
 	// for a kanban view. v1's single tasks endpoint is polymorphic; v2 splits it
@@ -156,7 +159,36 @@ func getTaskFilterOptsFromCollection(tf *TaskCollection, projectView *ProjectVie
 	}
 
 	opts.parsedFilters, err = getTaskFiltersFromFilterString(tf.Filter, tf.FilterTimezone)
-	return opts, err
+	if err != nil || tf.nullableFilter == "" {
+		return opts, err
+	}
+
+	nullable, err := getTaskFiltersFromFilterString(tf.nullableFilter, tf.FilterTimezone)
+	if err != nil {
+		return nil, err
+	}
+	groups := []*taskFilter{{value: nullable, join: filterConcatAnd, includeNulls: true}}
+	if len(opts.parsedFilters) > 0 {
+		groups = append(groups, &taskFilter{value: opts.parsedFilters, join: filterConcatAnd})
+		opts.filter = "(" + tf.nullableFilter + ") && (" + tf.Filter + ")"
+	} else {
+		opts.filter = tf.nullableFilter
+	}
+	opts.parsedFilters = groups
+	return opts, nil
+}
+
+func (tf *TaskCollection) mergeRequestFilter(request *TaskCollection) {
+	switch {
+	case request.Filter == "":
+	case tf.Filter == "":
+		tf.Filter = request.Filter
+		tf.FilterIncludeNulls = tf.FilterIncludeNulls || request.FilterIncludeNulls
+	case request.FilterIncludeNulls && !tf.FilterIncludeNulls:
+		tf.nullableFilter = request.Filter
+	default:
+		tf.Filter = "(" + request.Filter + ") && (" + tf.Filter + ")"
+	}
 }
 
 // SetForceFlatTasks makes ReadAll return a flat []*Task even for a kanban view.
@@ -166,6 +198,9 @@ func (tf *TaskCollection) SetForceFlatTasks() {
 }
 
 func (tf *TaskCollection) normalizeIncludeSubprojects(a web.Auth, view *ProjectView) {
+	if view != nil && view.Filter != nil {
+		tf.IncludeSubprojects = tf.IncludeSubprojects || view.Filter.IncludeSubprojects
+	}
 	tf.IncludeSubprojects = tf.IncludeSubprojects && tf.ProjectID > 0 && !tf.isSavedFilter
 	if _, is := a.(*LinkSharing); is {
 		tf.IncludeSubprojects = false
@@ -359,13 +394,7 @@ func (tf *TaskCollection) ReadAll(s *xorm.Session, a web.Auth, search string, pa
 		tc.Expand = tf.Expand
 		tc.forceFlatTasks = tf.forceFlatTasks
 
-		if tf.Filter != "" {
-			if tc.Filter != "" {
-				tc.Filter = "(" + tf.Filter + ") && (" + tc.Filter + ")"
-			} else {
-				tc.Filter = tf.Filter
-			}
-		}
+		tc.mergeRequestFilter(tf)
 
 		return tc.ReadAll(s, a, search, page, perPage)
 	}

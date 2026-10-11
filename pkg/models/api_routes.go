@@ -43,6 +43,12 @@ func init() {
 			Method: "ANY",
 		},
 	}
+	apiTokenRoutesV2["mcp"] = APITokenRoute{
+		"access": &RouteDetail{
+			Path:   "/api/v2/mcp",
+			Method: http.MethodPost,
+		},
+	}
 	apiTokenRoutes["feeds"] = APITokenRoute{
 		"access": &RouteDetail{
 			Path:   "/feeds/*",
@@ -255,6 +261,8 @@ func CollectRoutesForAPITokenUsage(route echo.RouteInfo, requiresJWT bool) {
 		routeGroupName == "tokens" ||
 		routeGroupName == "*" ||
 		routeGroupName == "oauth_authorize" ||
+		routeGroupName == "mcp" ||
+		strings.HasPrefix(routeGroupName, "mcp_") ||
 		strings.HasPrefix(routeGroupName, "user_") {
 		return
 	}
@@ -456,6 +464,11 @@ func CanDoAPIRoute(c *echo.Context, token *APIToken) (can bool) {
 	return expandScopesSatisfied(c, token, path, method)
 }
 
+// CanUseRoute checks route scopes; query-dependent expand scopes stay in CanDoAPIRoute.
+func (t *APIToken) CanUseRoute(path, method string) bool {
+	return t != nil && tokenAuthorizesRoute(t, path, method)
+}
+
 func tokenAuthorizesRoute(token *APIToken, path, method string) bool {
 	for rawGroup, perms := range token.APIPermissions {
 		group := canonicalAPITokenGroup(rawGroup)
@@ -502,11 +515,21 @@ var expandScopeRoutes = map[string]bool{
 	"/api/v1/projects/:project/views/:view/tasks":         true,
 	"/api/v1/projects/:project/views/:view/buckets":       true,
 	"/api/v2/tasks":                                       true,
-	"/api/v2/tasks/:projecttask":                          true,
+	"/api/v2/tasks/:task":                                 true,
 	"/api/v2/projects/:project/tasks":                     true,
 	"/api/v2/projects/:project/tasks/by-index/:index":     true,
 	"/api/v2/projects/:project/views/:view/tasks":         true,
 	"/api/v2/projects/:project/views/:view/buckets/tasks": true,
+}
+
+// ExpandScopeRoutes exposes the keys so pkg/webtests can assert they still match
+// registered echo routes; pkg/models cannot import pkg/routes to check itself.
+func ExpandScopeRoutes() []string {
+	paths := make([]string, 0, len(expandScopeRoutes))
+	for path := range expandScopeRoutes {
+		paths = append(paths, path)
+	}
+	return paths
 }
 
 func requiredScopeForExpand(value string) (group, permission string, needsScope bool) {

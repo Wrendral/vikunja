@@ -24,6 +24,7 @@ import {DeleteSelectionBeforeEnter} from './deleteSelectionBeforeEnter'
 import {BlockquoteWithCommentId} from './blockquoteWithCommentId'
 import {TaskLink, LINK_HTML_ATTRIBUTES} from './taskLink'
 import {createClipboardParser, fillRequiredContent, repairSliceContent} from './contentRepair'
+import {htmlHasFormatting} from './clipboardHtml'
 
 import Commands from './commands'
 import suggestionSetup from './suggestion'
@@ -32,11 +33,40 @@ import {EmojiExtension} from './emoji/emojiExtension'
 import {common, createLowlight} from 'lowlight'
 
 import type {UploadCallback} from './types'
-import type {ITask} from '@/modelTypes/ITask'
-import type {IAttachment} from '@/modelTypes/IAttachment'
-import {fetchAttachmentBlobUrl} from '@/helpers/attachments'
+import type {Task as ITask} from '@/client/generated'
+import type {TaskAttachment as IAttachment} from '@/client/generated'
+import {fetchAttachmentUrl, releaseAttachmentUrl} from '@/helpers/attachments'
+import {getApiRootUrl} from '@/helpers/apiUrl'
 
 type ImageNodeKey = `${ITask['id']}-${IAttachment['id']}`
+
+// stored srcs predate the v2 flip, so the version segment is matched, not compared
+const ATTACHMENT_URL = /^(.*?)(?:\/api\/v[12])?\/tasks\/(\d+)\/attachments\/(\d+)$/
+
+interface AttachmentRef {
+	taskId: number
+	attachmentId: number
+}
+
+function parseAttachmentUrl(url: unknown): AttachmentRef | null {
+	if (typeof url !== 'string') {
+		return null
+	}
+
+	const match = ATTACHMENT_URL.exec(url)
+	if (match === null) {
+		return null
+	}
+
+	if (match[1] !== getApiRootUrl()) {
+		return null
+	}
+
+	return {
+		taskId: Number(match[2]),
+		attachmentId: Number(match[3]),
+	}
+}
 
 export interface EditorExtensionDeps {
 	t: (key: string) => string
@@ -99,7 +129,30 @@ export function createEditorExtensions(deps: EditorExtensionDeps): Extensions {
 		uploadAndInsertFiles,
 	} = deps
 
+	// One url per image node, reused across re-renders and released with the editor that handed it out.
+	const imageUrls = new Map<ImageNodeKey, string>()
+
+	async function resolveImageUrl(nodeKey: ImageNodeKey, taskId: number, attachmentId: number): Promise<string> {
+		const cached = imageUrls.get(nodeKey)
+		if (cached !== undefined) {
+			return cached
+		}
+
+		const url = await fetchAttachmentUrl({task_id: taskId, id: attachmentId})
+		const won = imageUrls.get(nodeKey)
+		if (won !== undefined) {
+			releaseAttachmentUrl(url)
+			return won
+		}
+		imageUrls.set(nodeKey, url)
+		return url
+	}
+
 	const CustomImage = Image.extend({
+		onDestroy() {
+			imageUrls.forEach(releaseAttachmentUrl)
+			imageUrls.clear()
+		},
 		addAttributes() {
 			return {
 				src: {
@@ -122,13 +175,10 @@ export function createEditorExtensions(deps: EditorExtensionDeps): Extensions {
 			}
 		},
 		renderHTML({HTMLAttributes}) {
-			if (HTMLAttributes.src?.startsWith(window.API_URL) || HTMLAttributes['data-src']?.startsWith(window.API_URL)) {
-				const imageUrl = HTMLAttributes['data-src'] ?? HTMLAttributes.src
-
-				// The url is something like /tasks/<id>/attachments/<id>
-				const parts = imageUrl.slice(window.API_URL.length + 1).split('/')
-				const taskId = Number(parts[1])
-				const attachmentId = Number(parts[3])
+			const imageUrl = HTMLAttributes['data-src'] ?? HTMLAttributes.src
+			const attachment = parseAttachmentUrl(imageUrl)
+			if (attachment !== null) {
+				const {taskId, attachmentId} = attachment
 				const nodeKey: ImageNodeKey = `${taskId}-${attachmentId}`
 				const id = 'tiptap-image-' + nodeKey
 
@@ -143,7 +193,7 @@ export function createEditorExtensions(deps: EditorExtensionDeps): Extensions {
 					if (!img || !(img instanceof HTMLImageElement)) return
 
 					try {
-						img.src = await fetchAttachmentBlobUrl({taskId, id: attachmentId})
+						img.src = await resolveImageUrl(nodeKey, taskId, attachmentId)
 					} catch {
 						// leave the placeholder src in place
 					}
@@ -200,13 +250,18 @@ export function createEditorExtensions(deps: EditorExtensionDeps): Extensions {
 								return false
 							}
 
+							// Rich clipboard content was never markdown source, converting it
+							// would drop the formatting the browser already gave us.
+							if (htmlHasFormatting(event.clipboardData?.getData('text/html') || '')) {
+								return false
+							}
+
 							const hasMarkdownSyntax = new RegExp('[*`_\\[\\]#-]').test(text)
 							if (!hasMarkdownSyntax) {
 								return false
 							}
 
-							const html = marked.parse(text) as string
-							const parsed = createNodeFromContent(html, this.editor.schema, {
+							const parsed = createNodeFromContent(marked.parse(text) as string, this.editor.schema, {
 								parseOptions: {preserveWhitespace: 'full', ...this.editor.options.parseOptions},
 							})
 

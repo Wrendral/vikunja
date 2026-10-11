@@ -4,12 +4,13 @@
 		:class="[
 			variantClass,
 			{
-				'is-loading': loading,
+				'is-loading': showLoading,
 				'has-no-shadow': !shadow || variant === 'tertiary',
 				'is-danger': danger,
 			}
 		]"
-		:disabled="disabled || loading"
+		:disabled="disabled"
+		:aria-disabled="loading || undefined"
 		:style="{
 			'--button-white-space': wrap ? 'break-spaces' : 'nowrap',
 		}"
@@ -39,6 +40,7 @@
 <script setup lang="ts">
 import {computed, type PropType} from 'vue'
 import BaseButton from '@/components/base/BaseButton.vue'
+import {useDelayedLoading} from '@/composables/useDelayedLoading'
 import type {IconProp} from '@fortawesome/fontawesome-svg-core'
 
 export type ButtonTypes = 'primary' | 'secondary' | 'tertiary'
@@ -66,6 +68,7 @@ const VARIANT_CLASS_MAP: Record<ButtonTypes, string> = {
 }
 
 const variantClass = computed<string>(() => VARIANT_CLASS_MAP[props.variant])
+const showLoading = useDelayedLoading(() => props.loading)
 </script>
 
 <style lang="scss" scoped>
@@ -124,7 +127,8 @@ const variantClass = computed<string>(() => VARIANT_CLASS_MAP[props.variant])
 		box-shadow: var(--shadow-xs) !important;
 	}
 
-	&[disabled] {
+	&[disabled],
+	&[aria-disabled='true'] {
 		opacity: 0.5;
 		cursor: not-allowed;
 		pointer-events: none;

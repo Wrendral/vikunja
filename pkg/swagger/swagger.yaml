@@ -169,20 +169,6 @@ definitions:
       url:
         type: string
     type: object
-  license.Feature:
-    enum:
-    - 0
-    - 1
-    - 2
-    - 3
-    - 4
-    type: integer
-    x-enum-varnames:
-    - FeatureUnknown
-    - FeatureAdminPanel
-    - FeatureTimeTracking
-    - FeatureAuditLogs
-    - FeatureUserInvites
   license.Info:
     properties:
       expires_at:
@@ -207,8 +193,28 @@ definitions:
       code:
         type: string
     type: object
+  migration.ErrorKind:
+    enum:
+    - reported
+    - interrupted
+    - credentials
+    - queue
+    - upload
+    - detail
+    type: string
+    x-enum-varnames:
+    - ErrorKindReported
+    - ErrorKindInterrupted
+    - ErrorKindCredentials
+    - ErrorKindQueue
+    - ErrorKindUpload
+    - ErrorKindDetail
   migration.Status:
     properties:
+      error_kind:
+        $ref: '#/definitions/migration.ErrorKind'
+      error_message:
+        type: string
       finished_at:
         type: string
       id:
@@ -1612,7 +1618,7 @@ definitions:
         type: array
       enabled_pro_features:
         items:
-          $ref: '#/definitions/license.Feature'
+          type: string
         type: array
       frontend_url:
         type: string
@@ -3231,7 +3237,7 @@ paths:
       - application/json
       responses:
         "200":
-          description: A message telling you everything was migrated successfully.
+          description: A message telling you the migration was started.
           schema:
             $ref: '#/definitions/models.Message'
         "500":
@@ -4484,8 +4490,8 @@ paths:
     put:
       consumes:
       - application/json
-      description: Share a project via link. The user needs to have write-access to
-        the project to be able do this.
+      description: Share a project via link. The user needs to be admin of the project
+        to be able do this.
       parameters:
       - description: Project ID
         in: path
@@ -4530,8 +4536,8 @@ paths:
     delete:
       consumes:
       - application/json
-      description: Remove a link share. The user needs to have write-access to the
-        project to be able do this.
+      description: Remove a link share. The user needs to be admin of the project
+        to be able do this.
       parameters:
       - description: Project ID
         in: path
@@ -7837,9 +7843,10 @@ paths:
           schema:
             $ref: '#/definitions/auth.Token'
         "401":
-          description: Invalid or expired refresh token.
+          description: Invalid, expired or already-used refresh token, or no refresh
+            token cookie sent (codes 16002-16005).
           schema:
-            $ref: '#/definitions/models.Message'
+            $ref: '#/definitions/web.HTTPError'
       summary: Refresh user token
       tags:
       - auth

@@ -24,6 +24,7 @@ import (
 
 	"code.vikunja.io/api/pkg/db"
 	"code.vikunja.io/api/pkg/models"
+	"code.vikunja.io/api/pkg/modules/humabridge"
 	"code.vikunja.io/api/pkg/web/handler"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -63,7 +64,7 @@ func RegisterTaskRoutes(api huma.API) {
 		Summary:     "Get a task",
 		Description: "Returns a single task by its numeric id. Sends an ETag; pass it as If-None-Match on a later read to get a 304 Not Modified. " + expandDoc,
 		Method:      "GET",
-		Path:        "/tasks/{projecttask}",
+		Path:        "/tasks/{task}",
 		Tags:        tags,
 	}, tasksRead)
 
@@ -106,7 +107,7 @@ func RegisterTaskRoutes(api huma.API) {
 		Summary:     "Update a task",
 		Description: "Replaces all of a task's fields; requires write access. Setting project_id to a different project moves the task and also requires write access to the target project. Use PATCH for a partial update.",
 		Method:      "PUT",
-		Path:        "/tasks/{projecttask}",
+		Path:        "/tasks/{task}",
 		Tags:        tags,
 	}, tasksUpdate)
 
@@ -115,7 +116,7 @@ func RegisterTaskRoutes(api huma.API) {
 		Summary:     "Delete a task",
 		Description: "Deletes a task. Requires write access to its project.",
 		Method:      "DELETE",
-		Path:        "/tasks/{projecttask}",
+		Path:        "/tasks/{task}",
 		Tags:        tags,
 	}, tasksDelete)
 }
@@ -128,7 +129,7 @@ type taskReadOneBody struct {
 }
 
 func tasksRead(ctx context.Context, in *struct {
-	ID     int64    `path:"projecttask" doc:"The numeric id of the task."`
+	ID     int64    `path:"task" doc:"The numeric id of the task."`
 	Expand []string `query:"expand,explode" enum:"subtasks,buckets,reactions,comments,comment_count,time_entries_count,is_unread" doc:"Embed extra data per task. Repeatable."`
 	Format string   `query:"format" enum:"html,markdown" doc:"How rich-text fields are exchanged. See the API description."`
 	conditional.Params
@@ -228,7 +229,7 @@ func tasksReadByIndex(ctx context.Context, in *struct {
 		Path: GroupPrefix + "/projects/" + strconv.FormatInt(task.ProjectID, 10) +
 			"/tasks/by-index/" + strconv.FormatInt(task.Index, 10),
 	}
-	if ec := echoContextFromCtx(ctx); ec != nil {
+	if ec := humabridge.EchoContextFrom(ctx); ec != nil {
 		location.RawQuery = (*ec).Request().URL.RawQuery
 	}
 	locationValue := location.String()
@@ -263,7 +264,7 @@ func tasksCreate(ctx context.Context, in *struct {
 
 // Body matches the read shape so AutoPatch's GET→PUT echo of max_permission validates.
 func tasksUpdate(ctx context.Context, in *struct {
-	ID     int64  `path:"projecttask"`
+	ID     int64  `path:"task"`
 	Format string `query:"format" enum:"html,markdown" doc:"How rich-text fields are exchanged. See the API description."`
 	Body   taskReadOneBody
 }) (*singleBody[models.Task], error) {
@@ -284,7 +285,7 @@ func tasksUpdate(ctx context.Context, in *struct {
 }
 
 func tasksDelete(ctx context.Context, in *struct {
-	ID int64 `path:"projecttask"`
+	ID int64 `path:"task"`
 }) (*emptyBody, error) {
 	a, err := authFromCtx(ctx)
 	if err != nil {

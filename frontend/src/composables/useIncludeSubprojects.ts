@@ -1,14 +1,9 @@
-import {computed, type ComputedGetter, type DeepReadonly, type ComputedRef} from 'vue'
+import {computed} from 'vue'
 import {useAuthStore} from '@/stores/auth'
-import type {IProjectView} from '@/modelTypes/IProjectView'
 
 export const INCLUDE_SUBPROJECTS_QUERY_PARAM = 'include_subprojects'
 
-export function useIncludeSubprojects(
-	viewGetter: ComputedGetter<IProjectView | DeepReadonly<IProjectView> | undefined>,
-): ComputedRef<boolean> {
-	void viewGetter
+export function useIncludeSubprojects() {
 	const authStore = useAuthStore()
-
-	return computed(() => authStore.settings.frontendSettings.includeSubprojects === true)
+	return computed(() => authStore.settings.frontend_settings.include_subprojects === true)
 }

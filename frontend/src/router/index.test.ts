@@ -11,7 +11,36 @@ vi.mock('@/i18n', () => ({
 	i18n: {global: {t: (key: string) => key}},
 }))
 
-import {getAuthForRoute} from './index'
+import router, {getAuthForRoute} from './index'
+
+describe('settings route matching', () => {
+	it('routes negative project ids to saved-filter settings', () => {
+		expect(router.resolve('/projects/-2/settings/edit').name).toBe('filter.settings.edit')
+		expect(router.resolve('/projects/-2/settings/delete').name).toBe('filter.settings.delete')
+		expect(router.resolve('/projects/-10/settings/edit').name).toBe('filter.settings.edit')
+	})
+
+	it('routes non-negative project ids to project settings', () => {
+		expect(router.resolve('/projects/2/settings/edit').name).toBe('project.settings.edit')
+		expect(router.resolve('/projects/2/settings/delete').name).toBe('project.settings.delete')
+	})
+
+	it('does not route the Favorites pseudo-project to saved-filter settings', () => {
+		expect(router.resolve('/projects/-1/settings/edit').name).toBe('bad-not-found')
+		expect(router.resolve('/projects/-1/settings/delete').name).toBe('bad-not-found')
+	})
+
+	it('builds settings urls from named routes with projectId params', () => {
+		expect(router.resolve({name: 'project.settings.edit', params: {projectId: 2}}).path)
+			.toBe('/projects/2/settings/edit')
+		expect(router.resolve({name: 'project.settings.delete', params: {projectId: 2}}).path)
+			.toBe('/projects/2/settings/delete')
+		expect(router.resolve({name: 'filter.settings.edit', params: {projectId: -10}}).path)
+			.toBe('/projects/-10/settings/edit')
+		expect(router.resolve({name: 'filter.settings.delete', params: {projectId: -10}}).path)
+			.toBe('/projects/-10/settings/delete')
+	})
+})
 
 function route(query: RouteLocation['query'] = {}) {
 	return {
@@ -23,15 +52,15 @@ function route(query: RouteLocation['query'] = {}) {
 	} as unknown as RouteLocation
 }
 
-function authStoreStub({pendingEmail = 'new@example.com', ...overrides}: {pendingEmail?: string} & Record<string, unknown> = {}) {
-	const server = {pendingEmail}
+function authStoreStub({pending_email = 'new@example.com', ...overrides}: {pending_email?: string} & Record<string, unknown> = {}) {
+	const server = {pending_email}
 	const store = {
 		authUser: true,
 		authLinkShare: false,
 		// stale on purpose: this session was opened before the change was requested elsewhere
-		info: {pendingEmail: ''},
+		info: {pending_email: ''},
 		verifyEmail: vi.fn(async () => {
-			server.pendingEmail = ''
+			server.pending_email = ''
 			return true
 		}),
 		refreshUserInfo: vi.fn(async () => {
@@ -78,7 +107,7 @@ describe('getAuthForRoute email confirmation', () => {
 	})
 
 	it('does not claim success when nothing was pending', async () => {
-		const authStore = authStoreStub({pendingEmail: '', info: {pendingEmail: 'stale@example.com'}})
+		const authStore = authStoreStub({pending_email: '', info: {pending_email: 'stale@example.com'}})
 
 		const result = await getAuthForRoute(route({userEmailConfirm: 'token-123'}), authStore)
 
@@ -104,5 +133,13 @@ describe('getAuthForRoute email confirmation', () => {
 		await getAuthForRoute(route({userEmailConfirm: ''}), authStore)
 
 		expect(authStore.verifyEmail).not.toHaveBeenCalled()
+	})
+})
+
+
+describe('scroll restoration', () => {
+	it('scrolls a new route to the top left', () => {
+		const route = router.currentRoute.value
+		expect(router.options.scrollBehavior?.(route, route, null)).toEqual({left: 0, top: 0})
 	})
 })

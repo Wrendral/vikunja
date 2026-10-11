@@ -52,6 +52,7 @@
     "loading": "Vikunja is loading…",
     "errorOccured": "An error occurred:",
     "checkApiUrl": "Please check if the api url is correct.",
+    "rateLimited": "The server received too many requests. Please wait a moment and reload the page.",
     "noApiUrlConfigured": "No API url was configured. Please set one below:"
   },
   "offline": {
@@ -116,7 +117,9 @@
         "description": "Bot users are API-only users you own. They can be added to projects, assigned tasks, and authenticated with API tokens. They cannot log in interactively.",
         "namePlaceholder": "My Assistant",
         "create": "Create bot",
+        "createSuccess": "The bot \"{username}\" was created.",
         "enable": "Enable",
+        "tokensInactive": "API tokens of a disabled bot are rejected. Enable the bot to create or use tokens.",
         "badge": "Bot",
         "delete": {
           "header": "Delete this bot user",
@@ -226,11 +229,13 @@
       "caldav": {
         "title": "CalDAV",
         "howTo": "You can connect Vikunja to CalDAV clients to view and manage all your tasks from different clients. Enter this URL into your client:",
+        "urlLabel": "CalDAV URL",
         "more": "More information about CalDAV in Vikunja",
         "tokens": "CalDAV Tokens",
         "tokensHowTo": "For CalDAV authentication you can use either your normal account password or a dedicated CalDAV token.",
         "createToken": "Create a CalDAV token",
         "tokenCreated": "Here is your new token: {token}",
+        "deleteSuccess": "The CalDAV token was deleted successfully.",
         "wontSeeItAgain": "Write it down or save it securely — you will not be able to see it again.",
         "mustUseToken": "You need to create a CalDAV token to use CalDAV with any third-party client. Enter the token in the password field of your client.",
         "usernameIs": "Your username for CalDAV is: {0}",
@@ -324,6 +329,50 @@
         },
         "deleteSuccess": "Session revoked successfully. It may take up to 10 minutes for the session to fully expire.",
         "noOtherSessions": "No other active sessions."
+      },
+      "mcp": {
+        "intro": "Connect an AI assistant to your tasks, projects, and labels with the Model Context Protocol (MCP).",
+        "more": "More information about MCP in Vikunja",
+        "endpoint": "MCP endpoint",
+        "tokens": "MCP tokens",
+        "manageTokens": "Manage all API tokens",
+        "created": "Your MCP token is ready. Choose your client below to connect it.",
+        "client": "Which client do you use?",
+        "chooseClient": "Choose a client",
+        "clientHelp": "{client} setup guide",
+        "typedPreset": "Typed tools read + write",
+        "clients": {
+          "claudeCode": {
+            "command": "Run this command in a terminal: {value}",
+            "verify": "Start a Claude Code session and run /mcp to check the connection."
+          },
+          "codex": {
+            "environment": "Set the token in your shell environment: {value}",
+            "command": "Add the MCP server: {value}",
+            "config": "Alternatively, add this to ~/.codex/config.toml after setting the environment variable: {value}",
+            "note": "Start Codex from the shell where you set VIKUNJA_MCP_TOKEN. Set it again in each new shell, or store it securely in your shell environment."
+          },
+          "claudeDesktop": {
+            "open": "Open Customize → Connectors → Add custom connector. On Team or Enterprise, an owner adds it under Organization settings → Connectors.",
+            "url": "Name the connector Vikunja and enter this URL: {value}",
+            "auth": "Set Authentication to No sign-in.",
+            "header": "Under Request headers, choose authorization and paste this full value, including Bearer and the space, then add the connector: {value}",
+            "beta": "Request headers are in beta for a limited set of organizations. If this section is missing, connecting Vikunja is not available for your account yet."
+          },
+          "mistral": {
+            "open": "In the sidebar on the left open Context → Connectors → Add Connector → Add Custom Connector.",
+            "url": "Name the connector Vikunja, enter this URL, and select Connect: {value}",
+            "token": "Choose HTTP Bearer authentication and paste this token: {value}"
+          },
+          "chatgpt": {
+            "unavailable": "ChatGPT requires OAuth to connect to Vikunja. MCP OAuth is not supported yet, so this token cannot be used in ChatGPT."
+          },
+          "other": {
+            "title": "Other",
+            "url": "Use streamable HTTP transport with this endpoint: {value}",
+            "header": "Send this authorization header with every request: {value}"
+          }
+        }
       }
     },
     "deletion": {
@@ -395,7 +444,12 @@
       "poweredByUnsplash": "Powered by Unsplash",
       "loadMore": "Load more photos",
       "success": "The background has been set successfully!",
-      "removeSuccess": "The background has been removed successfully!"
+      "removeSuccess": "The background has been removed successfully!",
+      "searchError": "Loading backgrounds from Unsplash failed.",
+      "retry": "Try again",
+      "setBackground": "Set as project background",
+      "setBackgroundBy": "Set photo by {author} as project background",
+      "noPermission": "You need write access to this project to change its background."
     },
     "delete": {
       "title": "Delete \"{project}\"",
@@ -455,13 +509,27 @@
         "you": "You",
         "notShared": "Not shared with any {type} yet.",
         "remove": "Remove this {type}",
+        "sharable": "project",
         "removeHeader": "Remove a {type} from the {sharable}",
         "removeText": "Are you sure you want to remove this {sharable} from the {type}? This cannot be undone!",
+        "removeCleanupText": "Anyone who loses access to this project, or the projects under it, through this will also lose:",
         "removeSuccess": "The {sharable} was successfully removed from the {type}.",
         "addedSuccess": "The {type} was successfully added.",
         "updatedSuccess": "The {type} was successfully added.",
         "search": "Search for a {type} to share this project with",
         "permissionFor": "Permission for {sharable}"
+      },
+      "accessCleanup": {
+        "others": {
+          "assignments": "their task assignments",
+          "subscriptions": "their subscriptions to tasks and projects",
+          "webhooks": "webhooks they created"
+        },
+        "self": {
+          "assignments": "your task assignments",
+          "subscriptions": "your subscriptions to tasks and projects",
+          "webhooks": "webhooks you created"
+        }
       },
       "permission": {
         "title": "Permission",
@@ -710,6 +778,15 @@
     "importUpload": "To import data from {name} into Vikunja, click the button below to select a file.",
     "upload": "Upload file",
     "migrationStartedWillReciveEmail": "Vikunja will now import your lists/projects, tasks, notes, reminders and files from {service}. As this will take a while, we will send you an email once done. You can close this window now.",
+    "migrationFinished": "The import from {service} has finished. Everything it imported is now available in your projects.",
+    "migrationFailed": "The import from {service} failed: {reason}",
+    "failure": {
+      "reported": "The import from {service} failed. We have been notified about the error and are working on a fix.",
+      "interrupted": "The import from {service} was interrupted before it could finish. Please start it again.",
+      "credentials": "The credentials for {service} could not be verified. Please connect it again.",
+      "queue": "The import from {service} could not be queued. Please start it again.",
+      "upload": "The file you uploaded could not be stored. Please upload it again."
+    },
     "migrationInProgress": "A migration is currently in progress. Please wait until it is done.",
     "credentials": {
       "description": "Enter the address of your {name} instance and how Vikunja should log in. Vikunja imports all projects and boards you have access to; the credentials are only used for this import and are not stored.",
@@ -934,7 +1011,8 @@
       "createPlaceholder": "Create",
       "selectPlaceholder": "Click or press enter to select",
       "removeItem": "Remove this item",
-      "clear": "Clear selection"
+      "clear": "Clear selection",
+      "moreResultsHint": "Showing the first {shown} of {total} matches. Refine your search to find the rest."
     },
     "datepickerRange": {
       "to": "To",
@@ -1141,6 +1219,7 @@
       "delete": "Delete attachment",
       "deleteTooltip": "Delete this attachment",
       "deleteText1": "Are you sure you want to delete the attachment {filename}?",
+      "deleteSuccess": "The attachment was successfully deleted.",
       "copyUrlTooltip": "Copy the url of this attachment for usage in text",
       "setAsCover": "Make cover",
       "unsetAsCover": "Remove cover",
@@ -1312,18 +1391,21 @@
         "header": "Delete the team",
         "text1": "Are you sure you want to delete this team and all of its members?",
         "text2": "All team members will lose access to projects shared with this team. This CANNOT BE UNDONE!",
+        "cleanupText": "On projects the team members lose access to, the following will also be deleted:",
         "success": "The team was successfully deleted."
       },
       "deleteUser": {
         "header": "Remove a user from the team",
         "text1": "Are you sure you want to remove this user from the team?",
         "text2": "They will lose access to all projects this team has access to. This CANNOT BE UNDONE!",
+        "cleanupText": "On projects this user loses access to, the following will also be deleted:",
         "success": "The user was successfully deleted from the team."
       },
       "leave": {
         "title": "Leave team",
         "text1": "Are you sure you want to leave this team?",
         "text2": "You will lose access to all projects this team has access to. If you change your mind you'll need a team admin to add you again.",
+        "cleanupText": "On projects you lose access to, the following will also be deleted:",
         "success": "You have successfully left the team."
       }
     },
@@ -1436,11 +1518,14 @@
     "title": "Notifications",
     "none": "You don't have any notifications. Have a nice day!",
     "explainer": "Notifications will appear here when actions, projects or tasks you subscribed to happen.",
+    "read": "Read",
+    "unread": "Unread",
     "markAllRead": "Mark all notifications as read",
     "markAllReadSuccess": "Successfully marked all notifications as read.",
     "subscribeFeed": "Subscribe to notifications via Atom feed",
     "clearAll": "Clear notifications",
-    "clearAllSuccess": "All notifications have been cleared."
+    "clearAllSuccess": "All notifications have been cleared.",
+    "loadMore": "Load older notifications"
   },
   "quickActions": {
     "title": "Search and quick actions",
@@ -1507,6 +1592,8 @@
     "1035": "There is no pending email change to confirm.",
     "1036": "Please wait a minute before requesting another confirmation email.",
     "1038": "The custom scope set by the OIDC provider is malformed. Please make sure the openid provider sets the data correctly for your scope. Check especially to have set an oidcID.",
+    "1039": "This TOTP passcode has already been used. Please wait for the next passcode.",
+    "1040": "This account is locked due to too many failed login attempts. You can reset your password to unlock it.",
     "2001": "ID cannot be empty or 0.",
     "2002": "Some of the request data was invalid.",
     "2003": "The timezone '{timezone}' is invalid.",
@@ -1520,6 +1607,7 @@
     "3007": "A project with this identifier already exists.",
     "3008": "The project is archived and can therefore only be accessed read only. This is also true for all tasks associated with this project.",
     "3016": "The parent project is archived. Un-archive the parent project first.",
+    "3017": "The default project must be a project you can write to.",
     "4001": "The task title cannot be empty.",
     "4002": "The task does not exist.",
     "4003": "All bulk editing tasks must belong to the same project.",
@@ -1580,6 +1668,7 @@
     "14011": "The provided file is not a valid zip file.",
     "14012": "The provided file does not contain any data.",
     "14013": "The export was created with a Vikunja version that is too old to import. Please create a new export with a more recent version.",
+    "14016": "The import configuration could not be parsed. Please make sure it is a valid JSON object.",
     "14201": "Planka rejected the provided credentials. Check the URL and the API key or username and password.",
     "14202": "The Planka account requires an extra login step (two-factor code or accepting the terms). Log in to Planka in the browser once, or use an API key instead of username and password.",
     "14203": "A Planka URL and either an API key or username and password are required.",
@@ -1589,7 +1678,8 @@
     "title": "About",
     "version": "Version: {version}",
     "frontendVersion": "Frontend version: {version}",
-    "apiVersion": "API version: {version}"
+    "apiVersion": "API version: {version}",
+    "proActive": "Pro active"
   },
   "timeTracking": {
     "title": "Time tracking",
@@ -1609,6 +1699,7 @@
       "emptyTask": "No time tracked for this task yet.",
       "emptyFiltered": "No time tracked for the selected filters.",
       "total": "Total",
+      "pageTotal": "Total on this page",
       "time": "Time",
       "duration": "Duration"
     },
@@ -1618,6 +1709,7 @@
     }
   },
   "time": {
+    "justNow": "just now",
     "units": {
       "seconds": "second|seconds",
       "minutes": "minute|minutes",
@@ -1690,7 +1782,10 @@
       "reassignOwner": "Reassign owner",
       "reassignTitle": "Reassign {title}",
       "reassignedSuccess": "Project owner reassigned.",
-      "newOwnerLabel": "New owner"
+      "newOwnerLabel": "New owner",
+      "searchPlaceholder": "Search projects…",
+      "filterByOwner": "Filter by owner",
+      "hideDefaultProjects": "Hide default projects"
     },
     "inviteLinks": {
       "title": "Invite links",
@@ -1712,7 +1807,8 @@
       "deleteConfirm": "Delete “{name}”? People will no longer be able to register with this link. Existing accounts will stay active.",
       "deleted": "Invite link deleted.",
       "empty": "No invite links yet. Create a link to invite people to this instance.",
-      "futureExpiry": "Choose an expiry in the future."
+      "futureExpiry": "Choose an expiry in the future.",
+      "creatorDeleted": "Deleted user"
     }
   }
 }

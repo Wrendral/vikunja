@@ -1,4 +1,4 @@
-import {AxiosError} from 'axios'
+import {SENSITIVE_QUERY_PARAMS} from '@/helpers/sensitiveQueryParams'
 
 // Failed requests are surfaced to the user through the UI already, and an
 // expired session (401 on token refresh) is expected rather than a bug.
@@ -41,6 +41,14 @@ const THIRD_PARTY_INJECTION_PATTERNS = [
 	/wkwebview api client did not respond/i,
 ]
 
+// fetch() rejects with a bare TypeError, so the message text is the only signal the request never landed.
+const NETWORK_ERROR_PATTERNS = [
+	/failed to fetch/i,
+	/fetch failed/i,
+	/load failed/i,
+	/networkerror/i,
+]
+
 const THIRD_PARTY_URL_PATTERN = /^(?:(?:chrome|moz|safari-web|safari|ms-browser)-extension:|iabjs:)/i
 
 type SentryEventLike = {
@@ -57,16 +65,28 @@ type SentryEventLike = {
 }
 
 function isRequestError(e: unknown): boolean {
-	if (e instanceof AxiosError) {
+	if (e instanceof TypeError && NETWORK_ERROR_PATTERNS.some(pattern => pattern.test(e.message))) {
 		return true
 	}
 
-	if (typeof e !== 'object' || e === null) {
+	return isApiErrorBody(e)
+}
+
+// API error bodies are thrown as parsed JSON, so they are always plain objects.
+// Requiring that keeps out DOMException and other Error subclasses, which also
+// carry a `code` and a `message`.
+function isApiErrorBody(e: unknown): boolean {
+	if (typeof e !== 'object' || e === null || Object.getPrototypeOf(e) !== Object.prototype) {
 		return false
 	}
 
-	return typeof (e as {code?: unknown}).code !== 'undefined'
-		&& typeof (e as {message?: unknown}).message !== 'undefined'
+	const {code, message, status, detail} = e as {code?: unknown, message?: unknown, status?: unknown, detail?: unknown}
+
+	if (typeof status === 'number' && status >= 500) return false
+	if (typeof status === 'number' && status >= 400 && typeof detail === 'string') return true
+
+	return (typeof code === 'number' || typeof code === 'string')
+		&& typeof message === 'string'
 }
 
 export function isChunkLoadError(message: unknown): boolean {
@@ -147,6 +167,35 @@ export function shouldDropEvent(originalException: unknown, event?: SentryEventL
 }
 
 
+// Only a resource the browser fetched can fail for a reason we own: a wrong
+// path, a stale deploy, a 404. data:, blob: and cid: srcs carry their own bytes,
+// so an error there is undecodable bytes, not a load failure, and the payload
+// ends up in the issue title where it defeats grouping.
+const FETCHED_RESOURCE_PROTOCOLS = new Set(['http:', 'https:'])
+
+export function isReportableResourceUrl(url: string, pageUrl: string): boolean {
+	let resource: URL
+	let page: URL
+	try {
+		resource = new URL(url)
+		page = new URL(pageUrl)
+	} catch {
+		// A src the browser could not resolve at all, e.g. an empty one.
+		return false
+	}
+
+	if (!FETCHED_RESOURCE_PROTOCOLS.has(resource.protocol)) {
+		return false
+	}
+
+	// An empty, blank or fragment-only src resolves to the page itself, which is never a resource.
+	resource.hash = ''
+	page.hash = ''
+
+	return resource.href !== page.href
+}
+
+
 export function stripNavigationFragment<T>(span: T): T {
 	if (!span || typeof span !== 'object' || !('op' in span) || typeof span.op !== 'string' ||
 		!('description' in span) || typeof span.description !== 'string' ||
@@ -155,4 +204,24 @@ export function stripNavigationFragment<T>(span: T): T {
 	}
 	// Navigation timings retain the initial fragment after history.replaceState.
 	return {...span, description: span.description.split('#')[0]}
+}
+
+const SENSITIVE_PARAM_PATTERN = new RegExp(`((?:^|[?&#]|%3F|%26)(?:${SENSITIVE_QUERY_PARAMS.join('|')})(?:=|%3D))[^&#\\s"']*`, 'gi')
+
+export function redactSensitiveParams<T>(value: T): T {
+	if (typeof value === 'string') {
+		return value.replace(SENSITIVE_PARAM_PATTERN, '$1[Filtered]') as T
+	}
+
+	if (Array.isArray(value)) {
+		return value.map(redactSensitiveParams) as T
+	}
+
+	if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+		return Object.fromEntries(
+			Object.entries(value).map(([key, v]) => [key, redactSensitiveParams(v)]),
+		) as T
+	}
+
+	return value
 }

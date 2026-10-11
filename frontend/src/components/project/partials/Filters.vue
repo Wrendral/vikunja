@@ -55,13 +55,13 @@
 	</Card>
 </template>
 
-<script setup lang="ts">
+<script setup lang="ts" generic="T extends EditableTaskCollection">
 import {computed, ref, watch} from 'vue'
 import FancyCheckbox from '@/components/input/FancyCheckbox.vue'
 import {useRoute} from 'vue-router'
-import type {TaskFilterParams} from '@/services/taskCollection'
+import type {EditableTaskCollection} from '@/types/EditableTaskCollection'
 import {useLabels} from '@/composables/useLabels'
-import {useProjectStore} from '@/stores/projects'
+import {useProjects} from '@/composables/useProjects'
 import {
 	hasFilterQuery,
 	transformFilterStringForApi,
@@ -70,7 +70,7 @@ import FilterInputDocs from '@/components/input/filter/FilterInputDocs.vue'
 import FilterInput from '@/components/input/filter/FilterInput.vue'
 
 const props = withDefaults(defineProps<{
-	modelValue: TaskFilterParams,
+	modelValue: T,
 	hasTitle?: boolean,
 	hasFooter?: boolean,
 	changeImmediately?: boolean,
@@ -85,21 +85,21 @@ const props = withDefaults(defineProps<{
 })
 
 const emit = defineEmits<{
-	'update:modelValue': [value: TaskFilterParams],
+	'update:modelValue': [value: T],
 	'showResults': [],
 	'close': [],
 }>()
 
 const route = useRoute()
 const projectId = computed(() => {
-	if (route.name?.startsWith('project.')) {
+	if (typeof route.name === 'string' && route.name.startsWith('project.')) {
 		return Number(route.params.projectId)
 	}
 
 	return undefined
 })
 
-const params = ref<TaskFilterParams>({
+const params = ref<EditableTaskCollection>({
 	sort_by: [],
 	order_by: [],
 	filter: '',
@@ -118,7 +118,7 @@ watch(
 )
 
 const {getLabelByExactTitle} = useLabels()
-const projectStore = useProjectStore()
+const projectList = useProjects()
 
 const filterInputRef = ref()
 
@@ -129,7 +129,7 @@ const hasActiveFilters = computed(() => {
 // Using watchDebounced to prevent the filter re-triggering itself.
 watch(
 	() => props.modelValue,
-	(value: TaskFilterParams) => {
+	(value: T) => {
 		params.value = {...value}
 	},
 	{
@@ -158,7 +158,7 @@ function change(event: 'blur' | 'modelValue' | 'always') {
 		filterQuery.value,
 		labelTitle => getLabelByExactTitle(labelTitle)?.id || null,
 		projectTitle => {
-			const found = projectStore.findProjectByExactname(projectTitle)
+			const found = projectList.findProjectByExactname(projectTitle)
 			return found?.id || null
 		},
 	)
@@ -171,6 +171,7 @@ function change(event: 'blur' | 'modelValue' | 'always') {
 	}
 
 	const newParams = {
+		...props.modelValue,
 		...params.value,
 		filter: s === '' ? filter : '',
 		s,
@@ -184,7 +185,7 @@ function change(event: 'blur' | 'modelValue' | 'always') {
 }
 
 function changeAndEmitButton() {
-	change()
+	change('always')
 	emit('showResults')
 }
 

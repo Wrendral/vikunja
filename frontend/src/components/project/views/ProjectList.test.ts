@@ -1,32 +1,22 @@
 import {shallowMount, flushPromises} from '@vue/test-utils'
 import {describe, expect, it, vi, beforeEach} from 'vitest'
-import {nextTick, ref} from 'vue'
+import {QueryClient, VueQueryPlugin} from '@tanstack/vue-query'
+import {nextTick} from 'vue'
+import {createRouter, createMemoryHistory} from 'vue-router'
+import {createPinia} from 'pinia'
 import draggable from 'zhyswan-vuedraggable'
 
-import type {ITask} from '@/modelTypes/ITask'
+import type {Task as ITask} from '@/client/generated'
 
-const {updatePosition} = vi.hoisted(() => ({updatePosition: vi.fn()}))
-
-const allTasks = ref<ITask[]>([])
-
-vi.mock('@/services/taskPosition', () => ({
-	default: class {
-		update = updatePosition
-	},
+const sdk = vi.hoisted(() => ({
+	tasksPositionUpdate: vi.fn(),
+	projectViewTasksList: vi.fn(),
 }))
+const {tasksPositionUpdate: updatePosition} = sdk
 
-vi.mock('@/composables/useTaskList', () => ({
-	useTaskList: () => ({
-		tasks: allTasks,
-		loading: ref(false),
-		totalPages: ref(1),
-		currentPage: ref(1),
-		loadTasks: vi.fn(),
-		params: ref({}),
-		sortByParam: ref({position: 'asc'}),
-	}),
-}))
-
+vi.mock('@/client/generated', () => sdk)
+vi.mock('@/stores/auth', () => ({useAuthStore: () => ({settings: {timezone: 'UTC'}})}))
+vi.mock('@/message', () => ({error: vi.fn()}))
 vi.mock('@/composables/useTaskDragToProject', () => ({
 	useTaskDragToProject: () => ({
 		handleTaskDropToProject: async () => ({moved: false, targetProjectId: null}),
@@ -34,19 +24,14 @@ vi.mock('@/composables/useTaskDragToProject', () => ({
 }))
 
 vi.mock('@/stores/base', () => ({
-	useBaseStore: () => ({
-		currentProject: {id: 1, maxPermission: 2},
-		setHasTasks: vi.fn(),
+	useBaseStore: () => ({setHasTasks: vi.fn()}),
+}))
+
+vi.mock('@/composables/useCurrentProject', () => ({
+	useCurrentProject: () => ({
+		currentProject: {value: {id: 1, max_permission: 2}},
+		isPending: {value: false},
 	}),
-}))
-
-vi.mock('@/stores/tasks', () => ({
-	useTaskStore: () => ({setDraggedTask: vi.fn()}),
-}))
-
-vi.mock('@/services/savedFilter', () => ({
-	isSavedFilter: () => false,
-	useSavedFilter: () => ({filter: ref(null)}),
 }))
 
 vi.mock('vue-i18n', async importOriginal => ({
@@ -61,6 +46,8 @@ function makeTask(id: number, position: number): ITask {
 }
 
 async function mountList() {
+	const router = createRouter({history: createMemoryHistory(), routes: [{path: '/', component: {render: () => null}}]})
+	await router.push('/')
 	const wrapper = shallowMount(ProjectList, {
 		props: {
 			isLoadingProject: false,
@@ -68,6 +55,11 @@ async function mountList() {
 			viewId: 10,
 		},
 		global: {
+			plugins: [
+				router,
+				createPinia(),
+				[VueQueryPlugin, {queryClient: new QueryClient({defaultOptions: {queries: {retry: false}}})}],
+			],
 			mocks: {$t: (key: string) => key},
 			stubs: {
 				ProjectWrapper: {template: '<div><slot name="default"/></div>'},
@@ -75,8 +67,7 @@ async function mountList() {
 		},
 	})
 
-	allTasks.value = [makeTask(1, 100), makeTask(2, 200), makeTask(3, 300)]
-	await nextTick()
+	await flushPromises()
 
 	return wrapper
 }
@@ -90,9 +81,16 @@ function dragEndEvent(taskId: string, newIndex: number) {
 
 describe('ProjectList', () => {
 	beforeEach(() => {
-		allTasks.value = []
 		updatePosition.mockReset()
-		updatePosition.mockResolvedValue(undefined)
+		updatePosition.mockResolvedValue({data: {position: 200}})
+		// Asymmetric positions: the midpoint between the neighbours must differ from the dragged task's own position.
+		sdk.projectViewTasksList.mockResolvedValue({
+			data: {
+				items: [makeTask(1, 100), makeTask(2, 250), makeTask(3, 300)],
+				page: 1,
+				total_pages: 1,
+			},
+		})
 	})
 
 	it('saves the position of the dropped task', async () => {
@@ -103,8 +101,23 @@ describe('ProjectList', () => {
 		await flushPromises()
 
 		expect(updatePosition).toHaveBeenCalledWith(expect.objectContaining({
-			taskId: 2,
-			position: 200,
+			path: {task: 2},
+			body: {position: 200, project_view_id: 10},
+		}))
+	})
+
+	it('saves the position of a task reordered between two others', async () => {
+		const wrapper = await mountList()
+		const list = wrapper.findComponent(draggable)
+
+		list.vm.$emit('update:modelValue', [makeTask(1, 100), makeTask(3, 300), makeTask(2, 250)])
+		await nextTick()
+		list.vm.$emit('end', dragEndEvent('3', 1))
+		await flushPromises()
+
+		expect(updatePosition).toHaveBeenCalledWith(expect.objectContaining({
+			path: {task: 3},
+			body: {position: 175, project_view_id: 10},
 		}))
 	})
 

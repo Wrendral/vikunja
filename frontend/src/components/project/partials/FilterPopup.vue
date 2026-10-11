@@ -33,30 +33,41 @@ import {computed, ref, watch, nextTick} from 'vue'
 
 import Filters from '@/components/project/partials/Filters.vue'
 
-import {type TaskFilterParams} from '@/services/taskCollection'
-import {type IProjectView} from '@/modelTypes/IProjectView'
-import {type IProject} from '@/modelTypes/IProject'
-import {useProjectStore} from '@/stores/projects'
+import type {EditableTaskCollection} from '@/types/EditableTaskCollection'
+import {type TaskFilterParams} from '@/client/queries/tasks'
+import {useProjects} from '@/composables/useProjects'
 
 const props = defineProps<{
 	modelValue: TaskFilterParams,
-	projectId?: IProject['id'],
-	viewId?: IProjectView['id'],
+	projectId?: number,
+	viewId?: number,
 }>()
 
 const emit = defineEmits<{
 	'update:modelValue': [value: TaskFilterParams]
 }>()
 
-const projectStore = useProjectStore()
+const projectList = useProjects()
 
-const value = ref<TaskFilterParams>({})
+const value = ref<EditableTaskCollection>({
+	sort_by: [],
+	order_by: [],
+	filter: '',
+	filter_include_nulls: false,
+	s: '',
+})
 const filtersRef = ref()
 
 watch(
 	() => props.modelValue,
 	(modelValue: TaskFilterParams) => {
-		value.value = modelValue
+		value.value = {
+			sort_by: modelValue.sort_by ?? [],
+			order_by: modelValue.order_by ?? [],
+			filter: modelValue.filter ?? '',
+			filter_include_nulls: modelValue.filter_include_nulls ?? false,
+			s: modelValue.q ?? '',
+		}
 	},
 	{
 		immediate: true,
@@ -81,25 +92,22 @@ watch(modalOpen, (isOpen) => {
 })
 
 function showResults() {
-	emit('update:modelValue', {
-		...value.value,
-		filter: value.value.filter,
-		s: value.value.s,
-	})
+	const {s, ...rest} = value.value
+	emit('update:modelValue', {...props.modelValue, ...rest, q: s})
 	modalOpen.value = false
 }
-
-const currentView = computed(() => {
-	if (!props.projectId || !props.viewId) return
-	return projectStore.projects[props.projectId]?.views.find(view => view.id === props.viewId)
-})
 
 const filterFromView = computed(() => {
 	if (!props.projectId || !props.viewId) {
 		return
 	}
 	
-	return currentView.value?.filter?.filter
+	const project = projectList.projects[props.projectId]
+	if (!project) {
+		return
+	}
+	const view = project.views.find(v => v.id === props.viewId)
+	return view?.filter?.filter
 })
 </script>
 
